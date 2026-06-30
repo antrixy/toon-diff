@@ -56,8 +56,11 @@ It is proven independent of any TOON implementation by a self-test
 ```
 cli-v2.ts              # runs the N×N differential matrix over the corpus
 oracle/
-  ingest.ts            # lossless number-faithful ingestion + canonical compare
-  selftest-numbers.ts  # proves the oracle, no implementation needed
+  ingest.ts            # v2 lossless number-faithful ingestion + canonical compare
+  compare.ts           # v1 comparator + ingestionFidelity (used for the v1-vs-v2 note)
+  canonicalize.ts      # v1 canonical form (key sort, type-strict equality)
+  selftest.ts          # proves the v1 oracle
+  selftest-numbers.ts  # proves the v2 oracle, no implementation needed
 adapters/
   contract.ts          # one text-in/text-out protocol per implementation
   ts.ts                # @toon-format/toon (reference TS/JS)
