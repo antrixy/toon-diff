@@ -1,0 +1,28 @@
+# Dependencies (regenerated via npm install / pip install)
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Build / TS output
+dist/
+build/
+*.tsbuildinfo
+
+# Logs and caches
+*.log
+npm-debug.log*
+.npm/
+.cache/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local env files
+.env
+.env.*
