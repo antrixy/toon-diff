@@ -93,4 +93,4 @@ adapters. Findings are filed upstream against the individual implementations
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE).
