@@ -26,3 +26,5 @@ Thumbs.db
 # Local env files
 .env
 .env.*
+# Generated probe cases (regenerable from provenance via gen/replay-case.ts)
+probe/generated/
