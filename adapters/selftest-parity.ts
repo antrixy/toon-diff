@@ -1,0 +1,97 @@
+// adapters/selftest-parity.ts
+//
+// Proves the PERSISTENT python adapter is behaviorally identical to the proven
+// one-shot adapter. A speedup that silently changed a single encode/decode result
+// would manufacture false findings (or hide real ones) — so the optimization is
+// not trusted until this passes.
+//
+// For every case (the 13 seeds + a batch of generated cases) it checks:
+//   * encode:  oneshot.encode(C)      vs  persistent.encode(C)
+//   * decode:  oneshot.decode(T)      vs  persistent.decode(T)    where T = encode(C)
+// and requires, for each: both succeed with BYTE-IDENTICAL output, OR both fail.
+// A success-vs-failure split, or differing bytes, is a parity break.
+//
+// FULL ENV ONLY (needs the python impl installed).
+// Run: node --experimental-strip-types adapters/selftest-parity.ts [--per 30]
+
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { pythonAdapter } from "./python.ts";
+import { pythonAdapterPersistent, shutdownPython } from "./python-persistent.ts";
+import { generateCase } from "../gen/generate.ts";
+
+const args = process.argv.slice(2);
+const perArg = args.indexOf("--per");
+const per = perArg >= 0 && args[perArg + 1] ? parseInt(args[perArg + 1], 10) : 30;
+
+const casesDir = fileURLToPath(new URL("../probe/cases/", import.meta.url));
+const seeds = readdirSync(casesDir).filter((f) => f.endsWith(".json")).sort()
+  .map((f) => ({ name: f, text: readFileSync(casesDir + f, "utf8").trim() }));
+
+type Attempt = { ok: boolean; val?: string; err?: string };
+async function attempt(fn: () => Promise<string>): Promise<Attempt> {
+  try { return { ok: true, val: await fn() }; }
+  catch (e) { return { ok: false, err: e instanceof Error ? e.message : String(e) }; }
+}
+
+let checks = 0, mismatches = 0;
+let bothOk = 0, bothErr = 0;
+
+function compare(label: string, a: Attempt, b: Attempt): void {
+  checks++;
+  if (a.ok && b.ok) {
+    if (a.val === b.val) { bothOk++; return; }
+    mismatches++;
+    console.log(` FAIL ${label}: outputs differ`);
+    console.log(`   oneshot:    ${(a.val ?? "").slice(0, 120)}`);
+    console.log(`   persistent: ${(b.val ?? "").slice(0, 120)}`);
+  } else if (!a.ok && !b.ok) {
+    bothErr++; // both failed — parity holds (error text may differ in wrapping)
+  } else {
+    mismatches++;
+    console.log(` FAIL ${label}: one succeeded, the other failed`);
+    console.log(`   oneshot:    ${a.ok ? "ok" : "ERR " + (a.err ?? "").split("\n")[0]}`);
+    console.log(`   persistent: ${b.ok ? "ok" : "ERR " + (b.err ?? "").split("\n")[0]}`);
+  }
+}
+
+const main = async () => {
+  // Build the case list: the 13 seeds, plus a generated batch per seed.
+  const cases: { label: string; text: string }[] = [];
+  for (const s of seeds) cases.push({ label: `seed ${s.name}`, text: s.text });
+  seeds.forEach((s, si) => {
+    for (let i = 0; i < per; i++) {
+      const rngSeed = (1 * 1_000_003 + si * 9973 + i) >>> 0;
+      cases.push({
+        label: `${s.name} g${i} (rngSeed ${rngSeed})`,
+        text: generateCase(s.text, rngSeed, { seedName: s.name, maxOps: 3 }).text,
+      });
+    }
+  });
+
+  console.log(`parity check: ${cases.length} cases (${seeds.length} seeds + ${seeds.length}x${per} generated)\n`);
+
+  for (const c of cases) {
+    // encode parity
+    const e1 = await attempt(() => pythonAdapter.encode(c.text));
+    const e2 = await attempt(() => pythonAdapterPersistent.encode(c.text));
+    compare(`encode ${c.label}`, e1, e2);
+
+    // decode parity, on the encode output (prefer oneshot's; fall back to persistent's)
+    const toon = e1.ok ? e1.val! : e2.ok ? e2.val! : null;
+    if (toon !== null) {
+      const d1 = await attempt(() => pythonAdapter.decode(toon));
+      const d2 = await attempt(() => pythonAdapterPersistent.decode(toon));
+      compare(`decode ${c.label}`, d1, d2);
+    }
+  }
+
+  console.log(`\nchecks: ${checks} | both-ok: ${bothOk} | both-error: ${bothErr} | mismatches: ${mismatches}`);
+  console.log(mismatches === 0
+    ? "\nPARITY PROVEN: persistent python adapter matches one-shot byte-for-byte. Safe for big sweeps."
+    : `\nPARITY BROKEN: ${mismatches} mismatch(es) — do NOT use the persistent adapter until fixed.`);
+  shutdownPython();
+  process.exit(mismatches === 0 ? 0 : 1);
+};
+
+main();
