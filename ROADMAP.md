@@ -19,14 +19,18 @@ deliberately narrow. Narrowness is the moat.
 
 ## Now — v0.2 (make it a real fuzzer)
 
-- **Probe generator.** Mutate the seed corpus along documented fault lines
-  (boundary integers, delimiter-adjacent strings, near-uniform tables, empty
-  containers). Turns "inputs a person hand-wrote" into "inputs nobody wrote."
+- **Probe generator. [DONE — gen/]** Mutates the seed corpus along documented
+  fault lines via 10 structure-aware operators, prioritizing the flat/wide/
+  large-table shapes the ecosystem under-tests (toon#310). Numbers are captured
+  at their exact lexeme, so nothing is corrupted on ingestion — proven against the
+  oracle in gen/selftest-*.ts. Every case is deterministic and carries provenance
+  `(seed, rngSeed, pipeline)`, replayable byte-for-byte via gen/replay-case.ts.
+  Turns "inputs a person hand-wrote" into "inputs nobody wrote."
   *(Trust — wider input space, same proven judge.)*
-- **Failure shrinking.** Reduce any failing case to a minimal reproducer via
-  delta reduction, with a self-test proving the shrinker preserves the failure.
-  A 600 KB failure should collapse to `{"value": 9007199254740993}`.
-  *(Understanding.)*
+- **Failure shrinking. [NEXT]** Reduce any failing case to a minimal reproducer
+  via delta reduction, with a self-test proving the shrinker preserves the
+  failure. A 600 KB failure should collapse to `{"value": 9007199254740993}`.
+  The generator's recorded pipeline is the reduction axis. *(Understanding.)*
 - **Rust adapter (`serde_toon`).** A third number model (`i64/u64/f64`) turns
   the matrix into 3×3 and adds a whole row/column of handoffs where divergences
   hide. *(Adoption + Trust.)*
