@@ -68,7 +68,7 @@ function printFinding(
 }
 
 const main = async () => {
-  let findings = 0, checks = 0, cases = 0;
+  let findings = 0, checks = 0, cases = 0, malformed = 0;
   const startedAt = Date.now();
   const heartbeat = () => {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(0);
@@ -83,9 +83,25 @@ const main = async () => {
     for (let i = 0; i < per; i++) {
       const rngSeed = rngSeedFor(si, i);
       const g = generateCase(seed.text, rngSeed, { seedName: seed.name, maxOps });
-      const expected = ingest(g.text); // lossless; exact lexeme preserved
       cases++;
       if (cases % progressEvery === 0) heartbeat();
+      // The generator is supposed to emit valid JSON. If it ever doesn't, that's a
+      // bug in THIS tool, not a finding about TOON -- so record it (on stderr, with
+      // a replay command) and skip the case. Never abort a multi-thousand-case sweep
+      // for our own bug.
+      let expected;
+      try {
+        expected = ingest(g.text); // lossless; exact lexeme preserved
+      } catch (e) {
+        malformed++;
+        process.stderr.write(
+          `! generator emitted invalid JSON  seed=${g.provenance.seed} rngSeed=${g.provenance.rngSeed} maxOps=${maxOps}\n` +
+          `  recipe: ${chain(g.provenance)}\n` +
+          `  ${e instanceof Error ? e.message.split("\n")[0] : String(e)}\n` +
+          `  replay: node --experimental-strip-types gen/replay-case.ts ${g.provenance.seed} ${g.provenance.rngSeed} ${maxOps}\n`,
+        );
+        continue;
+      }
       for (const X of adapters) {
         for (const Y of adapters) {
           checks++;
@@ -108,6 +124,7 @@ const main = async () => {
   heartbeat();
   console.log(`\n${findings === 0 ? "NO DIVERGENCES" : `DIVERGENCES: ${findings}`}` +
     ` | cases: ${cases}/${totalCases} | pair-checks: ${checks}` +
+    ` | generator-malformed: ${malformed}` +
     (findings >= maxFindings ? " | (capped)" : ""));
   shutdownPython();
   process.exit(findings === 0 ? 0 : 1);

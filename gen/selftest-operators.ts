@@ -150,6 +150,25 @@ const rng = () => makeRng(0xC0FFEE);
   check("NumberForm: representation changed", afterText !== beforeText);
   check("NumberForm: value preserved (equalRaw)", equalRaw(afterText, beforeText));
 }
+// O7 regression: NumberForm must be CLOSED UNDER COMPOSITION. The first large fuzz
+// sweep crashed on "9007199254740993e0e0" -- two NumberForm steps stacking a second
+// exponent onto the first's output. Applying it repeatedly must stay valid JSON.
+{
+  let node: GNode = parse('{"unsafe":9007199254740993}');
+  let stayedValid = true;
+  for (let s = 0; s < 300; s++) {
+    if (!NumberForm.applicable(node)) break; // no plain number left to transform
+    node = NumberForm.apply(node, makeRng(s)).node;
+    try { ingest(emit(node)); } catch { stayedValid = false; break; }
+  }
+  check("NumberForm composed repeatedly stays valid JSON (e0e0 regression)", stayedValid);
+
+  // The exact case that crashed the first sweep must now generate valid JSON.
+  let crashCaseValid = true;
+  try { ingest(generateCase('{"unsafe":9007199254740993}', 1119744, { maxOps: 3 }).text); }
+  catch { crashCaseValid = false; }
+  check("crashed sweep case (013 @ rngSeed 1119744) now generates valid JSON", crashCaseValid);
+}
 // O8 DelimiterInject: a delimiter/lookalike string appears; result valid.
 {
   const before = parse('{"a":1}');

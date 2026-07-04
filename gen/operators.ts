@@ -242,19 +242,27 @@ export const BumpNumber: Operator = {
 // O7 NumberForm: re-emit the SAME value in a representationally tricky form (-0,
 // trailing-zero float, exponent). Value-equal to the oracle; may diverge in an
 // encoder that normalizes differently.
+// A PLAIN numeric lexeme: a bare integer or a bare decimal, with NO exponent.
+// NumberForm targets only these so it is CLOSED UNDER COMPOSITION -- it can never
+// be handed one of its own outputs (e.g. "9e0") and append a second exponent to
+// produce invalid JSON like "9e0e0". (That exact case, "9007199254740993e0e0",
+// crashed the first large sweep: two NumberForm steps on the same number.)
+const PLAIN_NUM = (n: GNode): boolean =>
+  isRawNum(n) && (/^-?\d+$/.test(lexemeOf(n)) || /^-?\d+\.\d+$/.test(lexemeOf(n)));
+
 export const NumberForm: Operator = {
   name: "NumberForm", tier: 2, weight: 2,
-  applicable: (r) => collectPaths(r, isRawNum).length > 0,
+  applicable: (r) => collectPaths(r, PLAIN_NUM).length > 0,
   apply(root, rng) {
-    const path = target(root, rng, isRawNum);
+    const path = target(root, rng, PLAIN_NUM); // cur is guaranteed exponent-free
     const cur = lexemeOf(getAt(root, path) as RawNum);
     const isPlainInt = /^-?\d+$/.test(cur);
-    let lex = cur;
-    if (isPlainInt) {
-      lex = rng.pick([`${cur}.0`, `${cur}e0`, cur === "0" ? "-0" : `${cur}.00`]);
-    } else {
-      lex = rng.pick([`${cur}0`, `${cur}e0`]); // extra trailing zero, or explicit e0
-    }
+    // Both branches append to an exponent-free lexeme, so every result is valid
+    // JSON and carries at most one exponent. A second NumberForm picks a different
+    // plain number, or is skipped if none remain.
+    const lex = isPlainInt
+      ? rng.pick([`${cur}.0`, `${cur}e0`, cur === "0" ? "-0" : `${cur}.00`])
+      : rng.pick([`${cur}0`, `${cur}e0`]); // plain decimal: more trailing zero, or e0
     return { node: replaceAt(root, path, rawNum(lex)), detail: `number form ${cur} -> ${lex}` };
   },
 };
