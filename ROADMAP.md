@@ -27,10 +27,14 @@ deliberately narrow. Narrowness is the moat.
   `(seed, rngSeed, pipeline)`, replayable byte-for-byte via gen/replay-case.ts.
   Turns "inputs a person hand-wrote" into "inputs nobody wrote."
   *(Trust — wider input space, same proven judge.)*
-- **Failure shrinking. [NEXT]** Reduce any failing case to a minimal reproducer
-  via delta reduction, with a self-test proving the shrinker preserves the
-  failure. A 600 KB failure should collapse to `{"value": 9007199254740993}`.
-  The generator's recorded pipeline is the reduction axis. *(Understanding.)*
+- **Failure shrinking. [DONE — gen/shrink*.ts]** Reduces any failing case to a
+  1-minimal reproducer by structure-aware delta reduction (hoist / null / array
+  ddmin / delete / simplify), driven by a FAILURE SIGNATURE — `(from, to, kind,
+  fingerprint)` — so reduction can't slip from one bug to another when a case
+  carries several. Proven against synthetic and mock-adapter predicates
+  (gen/selftest-shrink.ts), including the no-slippage guarantee. Collapses a
+  bloated finding to e.g. `{"unsafe":9007199254740993}` or `[[[]]]`.
+  *(Understanding.)*
 - **Rust adapter (`serde_toon`).** A third number model (`i64/u64/f64`) turns
   the matrix into 3×3 and adds a whole row/column of handoffs where divergences
   hide. *(Adoption + Trust.)*
