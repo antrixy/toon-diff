@@ -88,9 +88,35 @@ node --experimental-strip-types gen/cli.ts write   --per 20   # -> probe/generat
 node --experimental-strip-types gen/fuzz.ts --per 200
 ```
 
+## Shrinker (gen/shrink.ts, failure-signature.ts, shrink-cli.ts)
+
+Reduces a failing case to a 1-minimal reproducer.
+
+- **`shrink.ts`** — adapter-agnostic delta reduction over the lexeme-faithful tree
+  (a number is never corrupted mid-reduction). Strategies, biggest-cut first:
+  hoist a descendant up (peel layers), null out a subtree, ddmin arrays (chunk
+  removal), delete a key/element, simplify a scalar. Repeats to a fixpoint, which
+  is 1-minimality w.r.t. the strategy set. Takes an awaitable `interesting(text)`
+  predicate and knows nothing about TOON.
+- **`failure-signature.ts`** — defines what "same failure" means, so reduction
+  can't slip between bugs when a case carries several. Signature = `(from, to,
+  kind, fingerprint)`; the fingerprint categorizes HOW they diverge
+  (`number-changed`, `container->string`, `array->object`, `key-dropped`, …) or,
+  for errors, the message with digits normalized to `#` (so `Expected 500 items`
+  and `Expected 2 items` match and the array can shrink). It compares numbers by
+  canonical value on the lexeme-faithful tree — never `JSON.parse`, which would
+  round big integers on both sides and hide the difference. A reduction is kept
+  only if it still reproduces one of the original signatures.
+- **`shrink-cli.ts`** (full env) — shrink one case (`--seed/--rng`, `--file`, or
+  `--json`), or `--batch fuzz-out.txt` to collapse a run to one minimal case per
+  distinct signature.
+
+Proven in `selftest-shrink.ts` (no Python): a needle in a 6 KB structure reduces
+to just the needle and is 1-minimal; a mock-f64 predicate reduces a bloated case
+to the bare number; a 500-element array ddmins to length 2; and a case with TWO
+planted bugs, shrunk against one signature, keeps that bug and never switches.
+
 ## Not in this milestone
 
-- **Shrinker** — delta-reduction of a failing case to a minimal reproducer, with
-  its own self-test proving reduction preserves the failure. Next.
 - **From-scratch generation** — deferred; mutation-first covers the fault lines.
 - **Rust adapter** — separate track (needs cargo + network; run in a Codespace).
