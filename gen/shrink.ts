@@ -16,11 +16,30 @@
 // collapses before we bother with fine deletions):
 //   1. HOIST   -- replace the whole tree with one of its descendants (peel layers)
 //   2. NULL    -- replace any subtree with null (collapse irrelevant subtrees)
-//   3. DDMIN   -- remove chunks of any array (halving), then single elements
+//   3. DDMIN   -- non-contiguous delta-min of any array (see below)
 //   4. DELETE  -- drop an object key or array element
 //   5. SIMPLIFY-- reduce a scalar toward the simplest value
 // Each step returns the FIRST reduction that stays interesting; shrink() repeats
 // until a full step finds nothing, which is exactly 1-minimality w.r.t. this set.
+//
+// Why NON-CONTIGUOUS ddmin (step 3). A giant list-array whose failure depends on a
+// NON-MONOTONE invariant -- parity of the length, a checksum over the elements, a
+// balanced/near-uniform group structure (exactly what GrowTable / PerturbUniformity
+// manufacture) -- cannot be reduced by removing one element (that breaks the
+// invariant) NOR by removing one contiguous run (its removable filler is scattered,
+// or its removable group sits at a boundary no power-of-two split lands on). The old
+// contiguous halving left such cases at full size: 0 steps, nothing cut. So step 3 is
+// a proper ddmin over each array's elements:
+//   * REDUCE-TO-SUBSET   -- keep just one of n partitions (the big 1/n collapse);
+//   * REDUCE-TO-COMPLEMENT, ACCUMULATING -- within one granularity level, remove
+//     every partition whose removal keeps `interesting`, committing as it goes, so
+//     the net removed set is a NON-CONTIGUOUS UNION of partitions;
+//   * a DOUBLING pre-pass (2,4,8,... -- cheap big cuts, monotone cases finish here in
+//     O(log n) checks) followed by a LINEAR finish (2,3,4,... -- catches thirds,
+//     fifths and every non-power-of-two group a doubling ladder can never align to),
+//     looped to a fixpoint (ddmin-minimal for this array).
+// It only ever keeps/drops existing element nodes, so a RawNum is never rebuilt --
+// 9007199254740993 is not rounded while the array around it is being minimized.
 
 import type { GNode } from "./model.ts";
 import { parse, isRawNum, isArray, isObject } from "./model.ts";
@@ -76,6 +95,77 @@ function allPaths(root: GNode, includeRoot = true): Path[] {
 const isLeaf = (n: GNode) => n === null || typeof n === "boolean" || typeof n === "string" || isRawNum(n);
 const size = (t: string) => t.length;
 
+// Partition [0, len) into up to n contiguous index-blocks of near-equal size.
+function splitIndices(len: number, n: number): number[][] {
+  const parts: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const s = Math.floor((i * len) / n), e = Math.floor(((i + 1) * len) / n);
+    if (e > s) { const p: number[] = []; for (let j = s; j < e; j++) p.push(j); parts.push(p); }
+  }
+  return parts;
+}
+
+// ---- non-contiguous ddmin of ONE array -----------------------------------
+// Reduce the array at `path` to a ddmin-minimal subset that keeps `ok` true, then
+// return the whole tree with that array in place -- or null if nothing was cut.
+// `ok(candidateTree)` is the shared predicate gate from reduceOnce (it enforces the
+// check budget and "must be strictly smaller"); every candidate here has strictly
+// fewer elements than the current array, so it is always a real reduction.
+async function ddminArrayAt(
+  root: GNode,
+  path: Path,
+  ok: (cand: GNode) => Promise<boolean>,
+): Promise<GNode | null> {
+  const arr0 = getAt(root, path);
+  if (!isArray(arr0) || arr0.length < 2) return null;
+  let kept: GNode[] = arr0.slice();
+  let improved = false;
+
+  // One granularity level at partition count n. Tries the big 1/n subset cut first,
+  // then removes a NON-CONTIGUOUS union of partitions (accumulating over a snapshot
+  // of `kept`: partitions are disjoint, so committing one never invalidates another).
+  const level = async (n: number): Promise<boolean> => {
+    const len = kept.length;
+    const nn = Math.min(n, len);
+    if (nn < 2) return false;
+    const parts = splitIndices(len, nn);
+
+    // (a) reduce to subset: keep exactly one partition.
+    for (const part of parts) {
+      if (part.length === len) continue;
+      const subset = part.map((i) => kept[i]);
+      if (subset.length >= 1 && (await ok(replaceAt(root, path, subset)))) {
+        kept = subset; improved = true; return true;
+      }
+    }
+
+    // (b) reduce to complement, accumulating -> non-contiguous removal.
+    const mask = new Array(len).fill(false);
+    let removed = false;
+    for (const part of parts) {
+      for (const i of part) mask[i] = true;
+      const cand = kept.filter((_e, i) => !mask[i]);
+      if (cand.length >= 1 && cand.length < len && (await ok(replaceAt(root, path, cand)))) {
+        removed = true; // keep this partition removed; accumulate into the next
+      } else {
+        for (const i of part) mask[i] = false; // revert: this partition is load-bearing
+      }
+    }
+    if (removed) { kept = kept.filter((_e, i) => !mask[i]); improved = true; return true; }
+    return false;
+  };
+
+  for (;;) {
+    const before = kept.length;
+    // doubling pre-pass: cheap big cuts; monotone/aligned filler finishes here.
+    for (let n = 2; n <= kept.length; n *= 2) { while (await level(n)) { /* keep cutting at n */ } }
+    // linear finish: non-power-of-two group structure a doubling ladder can't align to.
+    for (let n = 2; n <= kept.length; n++) { if (await level(n)) n = 1; }
+    if (kept.length === before) break; // a whole round changed nothing -> ddmin-minimal
+  }
+  return improved ? replaceAt(root, path, kept) : null;
+}
+
 // ---- one reduction step ---------------------------------------------------
 // Returns a strictly-smaller interesting tree, or null if none exists.
 async function reduceOnce(
@@ -110,22 +200,15 @@ async function reduceOnce(
     if (await ok(cand)) return cand;
   }
 
-  // 3. DDMIN on arrays: remove chunks (halves, quarters, ...), largest arrays first.
+  // 3. DDMIN: non-contiguous delta-min of each array, largest arrays first. Each call
+  //    reduces one array to ddmin-minimal (subset + accumulating complement, doubling
+  //    then linear granularity); shrink()'s outer loop revisits the rest.
   const arrayPaths = paths.filter((p) => isArray(getAt(root, p)))
     .sort((a, b) => (getAt(root, b) as GNode[]).length - (getAt(root, a) as GNode[]).length);
   for (const p of arrayPaths) {
-    const arr = getAt(root, p) as GNode[];
-    const n = arr.length;
-    if (n === 0) continue;
-    for (let chunks = 2; chunks <= n; chunks *= 2) {
-      const csz = Math.ceil(n / chunks);
-      for (let start = 0; start < n; start += csz) {
-        const reduced = arr.slice(0, start).concat(arr.slice(start + csz));
-        if (reduced.length === n) continue;
-        const cand = replaceAt(root, p, reduced);
-        if (await ok(cand)) return cand;
-      }
-    }
+    if ((getAt(root, p) as GNode[]).length < 2) continue;
+    const reduced = await ddminArrayAt(root, p, ok);
+    if (reduced !== null) return reduced;
   }
 
   // 4. DELETE a single object key or array element.
