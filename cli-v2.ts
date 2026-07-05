@@ -22,9 +22,9 @@ import { ingestionFidelity } from "./oracle/compare.ts"; // kept only for the v1
 import type { Adapter } from "./adapters/contract.ts";
 import { tsAdapter } from "./adapters/ts.ts";
 import { pythonAdapter } from "./adapters/python.ts";
-// import { rustAdapter } from "./adapters/rust.ts"; // add when ready: 2 -> 3 adapters = 4 -> 9 pair-checks
+import { rustAdapter } from "./adapters/rust.ts";
 
-const adapters: Adapter[] = [tsAdapter, pythonAdapter];
+const adapters: Adapter[] = [tsAdapter, pythonAdapter, rustAdapter];
 const casesDir = fileURLToPath(new URL("./probe/cases/", import.meta.url));
 
 interface Mismatch {
