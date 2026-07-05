@@ -1,0 +1,31 @@
+[package]
+name = "toon-bridge"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "toon-bridge"
+path = "src/main.rs"
+
+[dependencies]
+# The implementation under test. Pin it EXACTLY so shrinker repros stay
+# reproducible and any filed issue names a precise version.
+#
+#   crates.io release (simplest, what a real user gets):
+toon-format = "=0.5.0"
+#
+#   to calibrate an unreleased HEAD instead, comment the line above and use:
+# toon-format = { git = "https://github.com/toon-format/toon-rust", rev = "<commit>" }
+#
+#   or a local checkout (handy while cross-reading its source):
+# toon-format = { path = "../../../toon-rust" }
+
+serde = { version = "1", features = ["derive"] }
+
+# preserve_order ON, arbitrary_precision OFF — deliberate. See src/main.rs header
+# and adapters/RUST-NOTES.md for the full rationale.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[profile.release]
+opt-level = 3
