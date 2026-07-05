@@ -28,11 +28,11 @@ import { ingest, equal } from "../oracle/ingest.ts";
 import type { Adapter } from "../adapters/contract.ts";
 import { tsAdapter } from "../adapters/ts.ts";
 import { pythonAdapterPersistent, shutdownPython } from "../adapters/python-persistent.ts";
-// import { rustAdapter } from "../adapters/rust.ts"; // when ready: 2->3 adapters = 4->9 pair-checks
+import { rustAdapterPersistent, shutdownRust } from "../adapters/rust-persistent.ts";
 import { generateCase } from "./generate.ts";
 import type { Provenance } from "./generate.ts";
 
-const adapters: Adapter[] = [tsAdapter, pythonAdapterPersistent];
+const adapters: Adapter[] = [tsAdapter, pythonAdapterPersistent, rustAdapterPersistent];
 
 const args = process.argv.slice(2);
 function opt(name: string, def: string): string {
@@ -75,7 +75,7 @@ const main = async () => {
     process.stderr.write(`… ${cases}/${totalCases} cases, ${findings} findings, ${secs}s\n`);
   };
 
-  console.log(`fuzzing: ${seeds.length} seeds x ${per} = ${totalCases} cases | maxOps: ${maxOps} | persistent python\n`);
+  console.log(`fuzzing: ${seeds.length} seeds x ${per} = ${totalCases} cases | maxOps: ${maxOps} | persistent python + rust\n`);
 
   outer:
   for (let si = 0; si < seeds.length; si++) {
@@ -127,6 +127,7 @@ const main = async () => {
     ` | generator-malformed: ${malformed}` +
     (findings >= maxFindings ? " | (capped)" : ""));
   shutdownPython();
+  shutdownRust();
   process.exit(findings === 0 ? 0 : 1);
 };
 

@@ -19,12 +19,13 @@ import { fileURLToPath } from "node:url";
 import type { Adapter } from "../adapters/contract.ts";
 import { tsAdapter } from "../adapters/ts.ts";
 import { pythonAdapterPersistent, shutdownPython } from "../adapters/python-persistent.ts";
+import { rustAdapterPersistent, shutdownRust } from "../adapters/rust-persistent.ts";
 import { generateCase } from "./generate.ts";
 import { shrink } from "./shrink.ts";
 import { captureSignatures, makeInteresting } from "./failure-signature.ts";
 import type { Signature } from "./failure-signature.ts";
 
-const adapters: Adapter[] = [tsAdapter, pythonAdapterPersistent];
+const adapters: Adapter[] = [tsAdapter, pythonAdapterPersistent, rustAdapterPersistent];
 const args = process.argv.slice(2);
 const opt = (n: string): string | null => { const i = args.indexOf("--" + n); return i >= 0 && args[i + 1] ? args[i + 1] : null; };
 
@@ -56,7 +57,7 @@ function parseFindings(path: string): { seed: string; rng: number; maxOps: numbe
   const lines = readFileSync(path, "utf8").split("\n");
   const out: { seed: string; rng: number; maxOps: number; from: string; to: string; ops: string }[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^(ts|python) → (ts|python)\s+✗\s+seed=(\S+) rngSeed=(\d+) maxOps=(\d+)/);
+    const m = lines[i].match(/^(ts|python|rust) → (ts|python|rust)\s+✗\s+seed=(\S+) rngSeed=(\d+) maxOps=(\d+)/);
     if (!m) continue;
     let ops = "";
     const rm = (lines[i + 1] || "").match(/^\s*recipe:\s*(.*)$/);
@@ -111,6 +112,7 @@ const main = async () => {
     }
   } finally {
     shutdownPython();
+    shutdownRust();
   }
 };
 
