@@ -28,3 +28,5 @@ Thumbs.db
 .env.*
 # Generated probe cases (regenerable from provenance via gen/replay-case.ts)
 probe/generated/
+# Rust bridge build artifacts (regenerated via cargo build)
+adapters/rust-bridge/target/
