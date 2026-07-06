@@ -26,7 +26,8 @@ import { makeRng } from "./prng.ts";
 import { generateCase, replay } from "./generate.ts";
 import {
   WidenObject, ScaleArray, GrowTable, WidenRow, PerturbUniformity,
-  EmptyContainerMix, BumpNumber, NumberForm, DelimiterInject, NestDeep,
+  EmptyContainerMix, BumpNumber, NumberForm, DelimiterInject,
+  LookalikeInject, EmptyKeyNonPrimitive, NestDeep,
 } from "./operators.ts";
 import { equalRaw, ingest } from "../oracle/ingest.ts";
 
@@ -180,6 +181,42 @@ const rng = () => makeRng(0xC0FFEE);
   }
   check("DelimiterInject: injects a delimiter/lookalike over a small sweep", sawPayload);
 }
+// O11 LookalikeInject: complete grammar-token lookalikes appear as QUOTED scalars
+// across a sweep -- all four token families -- and every result stays valid JSON.
+{
+  const before = parse('{"a":"x"}');
+  let allValid = true, sawHeader = false, sawTabular = false, sawMarker = false, sawKeyish = false;
+  for (let s = 0; s < 60; s++) {
+    const t = emit(LookalikeInject.apply(before, makeRng(s)).node);
+    try { ingest(t); } catch { allValid = false; break; }
+    if (/"\w*\[\d+\]:/.test(t)) sawHeader = true;             // "[3]:", "[0]:", "[1]: x"
+    if (/"\w*\[\d+\]\{[^}]*\}:/.test(t)) sawTabular = true;   // "[2]{a,b}:", "items[2]{x}:"
+    if (/"(  )?- /.test(t) || t.includes('"- "')) sawMarker = true; // "- ", "- item", "  - nested"
+    if (/"(key|a): ?/.test(t) || t.includes('"key:"')) sawKeyish = true; // "key:", "key: value", "a: 1"
+  }
+  check("LookalikeInject: every swept result is valid JSON", allValid);
+  check("LookalikeInject: array-header lookalike appears quoted", sawHeader);
+  check("LookalikeInject: tabular-header lookalike appears quoted", sawTabular);
+  check("LookalikeInject: list-marker lookalike appears quoted", sawMarker);
+  check("LookalikeInject: object-header lookalike appears quoted", sawKeyish);
+}
+// O12 EmptyKeyNonPrimitive: a "" key holding a NON-PRIMITIVE value appears (the
+// toon-python#64 shape), the empty key survives emit byte-exactly, result valid.
+{
+  const before = parse('{"a":1}');
+  let allValid = true, sawEmptyKeyContainer = false, emitPreserves = false;
+  for (let s = 0; s < 20; s++) {
+    const after = EmptyKeyNonPrimitive.apply(before, makeRng(s)).node as { [k: string]: GNode };
+    const t = emit(after);
+    try { ingest(t); } catch { allValid = false; break; }
+    const v = after[""];
+    if (v !== undefined && (isArray(v) || isObject(v))) sawEmptyKeyContainer = true;
+    if (t.includes('"":')) emitPreserves = true;
+  }
+  check("EmptyKeyNonPrimitive: every swept result is valid JSON", allValid);
+  check('EmptyKeyNonPrimitive: "" key over a container value appears', sawEmptyKeyContainer);
+  check('EmptyKeyNonPrimitive: emit preserves the "" key verbatim', emitPreserves);
+}
 // O9 NestDeep: depth increases.
 {
   const before = parse('{"a":1}');
@@ -203,7 +240,7 @@ console.log("\n— (3) determinism & replay —");
 console.log("\n— (4) toon#310 coverage: under-tested shapes are actually reached —");
 check("bulk run produced a flat-WIDE object (>= 64 keys)", sawWideObject);
 check("bulk run produced a LARGE table/array (>= 1000 elems)", sawLargeTable);
-check("every operator fired at least once in the bulk run", opsFired.size === 10);
+check("every operator fired at least once in the bulk run", opsFired.size === 12);
 console.log(`   operators exercised: ${[...opsFired].sort().join(", ")}`);
 
 console.log(failures === 0

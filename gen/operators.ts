@@ -295,6 +295,69 @@ export const DelimiterInject: Operator = {
   },
 };
 
+// O11 LookalikeInject: quoted scalars whose CONTENT is a COMPLETE TOON structural
+// token (the toon#324 class). DelimiterInject's palette stops at partial lookalikes
+// ("- item", "[bracket]"); this palette is the full grammar-token set: array
+// headers, tabular headers (bare and keyed), whole-value list markers (including
+// indented), and object-header lookalikes. A correct impl must quote these on
+// encode and decode them BACK TO THE SAME STRING -- never reparse them as
+// structure. Manufacturing them lets the fuzzer rediscover the #324 class
+// autonomously instead of by hand-written seed.
+const LOOKALIKE_PAYLOADS = [
+  // array headers
+  "[3]:", "[0]:", "[1]: x",
+  // tabular headers (bare + keyed)
+  "[2]{a,b}:", "[1]{id}:", "items[2]{x}:",
+  // whole-value list markers (plain + indented)
+  "- ", "- item", "  - nested",
+  // object-header lookalikes
+  "key:", "key: value", "a: 1",
+];
+export const LookalikeInject: Operator = {
+  name: "LookalikeInject", tier: 3, weight: 2,
+  applicable: (r) => collectPaths(r, (n) => typeof n === "string" || isObject(n)).length > 0,
+  apply(root, rng) {
+    const payload = rng.pick(LOOKALIKE_PAYLOADS);
+    const strPaths = collectPaths(root, (n) => typeof n === "string");
+    const objPaths = collectPaths(root, isObject);
+    // Same placement policy as DelimiterInject: prefer replacing an existing
+    // string; fall back to adding a key on an object.
+    const replaceString = strPaths.length > 0 && (objPaths.length === 0 || rng.bool());
+    if (replaceString) {
+      const path = strPaths[rng.int(strPaths.length)];
+      return { node: replaceAt(root, path, payload), detail: `string -> ${JSON.stringify(payload)}` };
+    }
+    const path = objPaths[rng.int(objPaths.length)];
+    const obj = { ...(getAt(root, path) as { [k: string]: GNode }) };
+    obj["lk"] = payload;
+    return { node: replaceAt(root, path, obj), detail: `add "lk": ${JSON.stringify(payload)}` };
+  },
+};
+
+// O12 EmptyKeyNonPrimitive: the toon-python#64 class. An empty-string key over a
+// NON-PRIMITIVE value ({"": {...}} / {"": [...]}) -- the shape no seed and no
+// other operator produces, which is why #64 was found by hand. Primitive values
+// under "" encode fine; the trigger is non-primitive only, so the palette is
+// exactly containers. Numbers inside palette values are minted as lexemes
+// (rawNum), never via an f64. Fresh nodes per apply -- no shared references.
+const EMPTY_KEY_VALUES: { make: () => GNode; label: string }[] = [
+  { make: () => ({}), label: "{}" },
+  { make: () => [], label: "[]" },
+  { make: () => ({ k: rawNum("1") }), label: '{"k":1}' },
+  { make: () => [rawNum("1")], label: "[1]" },
+];
+export const EmptyKeyNonPrimitive: Operator = {
+  name: "EmptyKeyNonPrimitive", tier: 3, weight: 1,
+  applicable: (r) => collectPaths(r, isObject).length > 0,
+  apply(root, rng) {
+    const path = target(root, rng, isObject);
+    const choice = rng.pick(EMPTY_KEY_VALUES);
+    const obj = { ...(getAt(root, path) as { [k: string]: GNode }) };
+    obj[""] = choice.make();
+    return { node: replaceAt(root, path, obj), detail: `add "": ${choice.label}` };
+  },
+};
+
 // --------------------------------------------------------------------------
 // TIER 4 — deep nesting: the OVER-tested region per toon#310. Kept for contrast
 //          (deep+wide combos), deliberately low weight.
@@ -313,5 +376,5 @@ export const NestDeep: Operator = {
 
 export const OPERATORS: Operator[] = [
   WidenObject, ScaleArray, GrowTable, WidenRow, PerturbUniformity, EmptyContainerMix,
-  BumpNumber, NumberForm, DelimiterInject, NestDeep,
+  BumpNumber, NumberForm, DelimiterInject, LookalikeInject, EmptyKeyNonPrimitive, NestDeep,
 ];

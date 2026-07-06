@@ -39,7 +39,9 @@ highly-repetitive / large-table** shapes. Tier 1 exists to manufacture those.
 | 1 | `EmptyContainerMix` | empty-array encoding (a bug already filed upstream) | 001, 002 |
 | 2 | `BumpNumber` | boundary/overflow integers (2^53±k, i64/u64 max, 10^30) | 010–013 |
 | 2 | `NumberForm` | representational number traps (-0, 1.0, 1e2) | 010 |
-| 3 | `DelimiterInject` | delimiter/inline-vs-quoted string stress + lookalikes | 006, 007, 009 |
+| 3 | `DelimiterInject` | delimiter/inline-vs-quoted string stress + partial lookalikes | 006, 007, 009 |
+| 3 | `LookalikeInject` | COMPLETE structural-lookalike tokens in quoted scalars (toon#324 class) | 006, 007 + any string/object seed |
+| 3 | `EmptyKeyNonPrimitive` | empty-string key over a non-primitive value (toon-python#64 class) | any object seed |
 | 4 | `NestDeep` | deep nesting — the *over-tested* region; kept only for contrast | 003 |
 
 Every operator: structure-aware (acts on a `GNode` tree, not text surgery),
@@ -65,7 +67,7 @@ v0.3's provenance-grouped corpus consumes it directly.
 - `model.ts` — lexeme-faithful value tree (`GNode`, `RawNum`) + `parse`.
 - `emit.ts` — `GNode` → valid JSON text, number- and key-order-faithful.
 - `prng.ts` — deterministic mulberry32.
-- `operators.ts` — the 10 operators + path addressing.
+- `operators.ts` — the 12 operators + path addressing.
 - `generate.ts` — recipe/provenance + pure `generateCase` / `replay`.
 - `cli.ts` — `preview` / `write` (no adapters needed; runs anywhere).
 - `fuzz.ts` — streams generated cases through the differential matrix
