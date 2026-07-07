@@ -56,10 +56,22 @@ function chain(p: Provenance): string {
 }
 const trim = (s: string) => (s.length > 200 ? s.slice(0, 200) + `… [${s.length}B]` : s);
 
+// Spec-version ANNOTATION (never classification): a finding between adapters
+// with different non-null claimed spec versions gets a marker, because SOME
+// such divergences may be spec-skew artifacts rather than impl bugs. A null
+// claim ("targets current") never produces a marker — there is no claim to
+// skew against. Triage still decides what each finding IS.
+const specClaim = (a: Adapter): string => a.specVersion ?? "(none)";
+function skewNote(X: Adapter, Y: Adapter): string {
+  return X.specVersion !== null && Y.specVersion !== null && X.specVersion !== Y.specVersion
+    ? `   [claimed-spec skew ${X.specVersion} vs ${Y.specVersion}]`
+    : "";
+}
+
 function printFinding(
-  p: Provenance, from: string, to: string, expected: string, actual: string, error?: string,
+  p: Provenance, from: string, to: string, expected: string, actual: string, error?: string, skew = "",
 ): void {
-  console.log(`${from} \u2192 ${to}   \u2717   seed=${p.seed} rngSeed=${p.rngSeed} maxOps=${maxOps}`);
+  console.log(`${from} \u2192 ${to}   \u2717   seed=${p.seed} rngSeed=${p.rngSeed} maxOps=${maxOps}${skew}`);
   console.log(`  recipe:   ${chain(p)}`);
   if (error) { console.log(`  error:    ${error}\n`); return; }
   console.log(`  expected: ${trim(expected)}`);
@@ -75,7 +87,8 @@ const main = async () => {
     process.stderr.write(`… ${cases}/${totalCases} cases, ${findings} findings, ${secs}s\n`);
   };
 
-  console.log(`fuzzing: ${seeds.length} seeds x ${per} = ${totalCases} cases | maxOps: ${maxOps} | persistent python + rust\n`);
+  console.log(`fuzzing: ${seeds.length} seeds x ${per} = ${totalCases} cases | maxOps: ${maxOps} | persistent python + rust`);
+  console.log(`claimed spec versions: ${adapters.map((a) => `${a.name}=${specClaim(a)}`).join("  ")}\n`);
 
   outer:
   for (let si = 0; si < seeds.length; si++) {
@@ -109,11 +122,11 @@ const main = async () => {
             const back = await Y.decode(await X.encode(g.text));
             if (!equal(ingest(back), expected)) {
               findings++;
-              printFinding(g.provenance, X.name, Y.name, g.text, back);
+              printFinding(g.provenance, X.name, Y.name, g.text, back, undefined, skewNote(X, Y));
             }
           } catch (e) {
             findings++;
-            printFinding(g.provenance, X.name, Y.name, g.text, "", e instanceof Error ? e.message : String(e));
+            printFinding(g.provenance, X.name, Y.name, g.text, "", e instanceof Error ? e.message : String(e), skewNote(X, Y));
           }
           if (findings >= maxFindings) break outer;
         }

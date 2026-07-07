@@ -72,6 +72,7 @@ function stringifyEmptyArrays(t: string): string {
 
 const idAdapter = (name: string, decode: (t: string) => string): Adapter => ({
   name,
+  specVersion: null,                   // mocks claim nothing
   encode: async (j) => j,              // toon == json for the mock
   decode: async (toon) => decode(toon),
 });
