@@ -10,7 +10,7 @@
 // so no build check is paid per call.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import type { Adapter } from "./contract.ts";
+import { SPEC_VERSION_CLAIMS, type Adapter } from "./contract.ts";
 
 const BIN =
   process.env.TOON_RUST_BRIDGE ??
@@ -34,6 +34,7 @@ function run(mode: "encode" | "decode", input: string): Promise<string> {
 
 export const rustAdapter: Adapter = {
   name: "rust",
+  specVersion: SPEC_VERSION_CLAIMS.rust,
   encode: (jsonText) => run("encode", jsonText),
   decode: (toonText) => run("decode", toonText),
 };

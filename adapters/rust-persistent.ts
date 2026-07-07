@@ -17,7 +17,7 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import type { Adapter } from "./contract.ts";
+import { SPEC_VERSION_CLAIMS, type Adapter } from "./contract.ts";
 
 const BIN =
   process.env.TOON_RUST_BRIDGE ??
@@ -90,6 +90,7 @@ function request(op: "encode" | "decode", data: string): Promise<string> {
 
 export const rustAdapterPersistent: Adapter = {
   name: "rust",
+  specVersion: SPEC_VERSION_CLAIMS.rust,
   encode: (jsonText) => request("encode", jsonText),
   decode: (toonText) => request("decode", toonText),
 };

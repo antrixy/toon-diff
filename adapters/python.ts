@@ -2,7 +2,7 @@
 // Install:  pip install git+https://github.com/toon-format/toon-python.git  (and python3 on PATH)
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import type { Adapter } from "./contract.ts";
+import { SPEC_VERSION_CLAIMS, type Adapter } from "./contract.ts";
 
 const SCRIPT = fileURLToPath(new URL("./adapter.py", import.meta.url));
 
@@ -21,6 +21,7 @@ function run(mode: "encode" | "decode", input: string): Promise<string> {
 
 export const pythonAdapter: Adapter = {
   name: "python",
+  specVersion: SPEC_VERSION_CLAIMS.python,
   encode: (jsonText) => run("encode", jsonText),
   decode: (toonText) => run("decode", toonText),
 };

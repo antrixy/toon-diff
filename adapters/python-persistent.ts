@@ -19,7 +19,7 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import type { Adapter } from "./contract.ts";
+import { SPEC_VERSION_CLAIMS, type Adapter } from "./contract.ts";
 
 const SCRIPT = fileURLToPath(new URL("./adapter.py", import.meta.url));
 
@@ -90,6 +90,7 @@ function request(op: "encode" | "decode", data: string): Promise<string> {
 
 export const pythonAdapterPersistent: Adapter = {
   name: "python",
+  specVersion: SPEC_VERSION_CLAIMS.python,
   encode: (jsonText) => request("encode", jsonText),
   decode: (toonText) => request("decode", toonText),
 };
