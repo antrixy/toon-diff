@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "significant whitespace inside strings survives TOON's indentation-based syntax"
+}

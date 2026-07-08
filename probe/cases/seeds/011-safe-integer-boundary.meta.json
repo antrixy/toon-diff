@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "2^53-1 (last safe integer) round-trips exactly in every implementation"
+}

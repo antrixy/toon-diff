@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "nested objects preserve structure and key order stability across encode/decode"
+}

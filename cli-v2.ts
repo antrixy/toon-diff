@@ -15,8 +15,7 @@
 // integer at the adapter's own JSON.parse, before TOON is even involved. That
 // is the reportable behavior, not a harness artifact.
 
-import { readdir, readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { loadCorpus } from "./probe/corpus.ts";
 import { ingest, equal } from "./oracle/ingest.ts";
 import { ingestionFidelity } from "./oracle/compare.ts"; // kept only for the v1-vs-v2 note
 import type { Adapter } from "./adapters/contract.ts";
@@ -25,7 +24,6 @@ import { pythonAdapter } from "./adapters/python.ts";
 import { rustAdapter } from "./adapters/rust.ts";
 
 const adapters: Adapter[] = [tsAdapter, pythonAdapter, rustAdapter];
-const casesDir = fileURLToPath(new URL("./probe/cases/", import.meta.url));
 
 interface Mismatch {
   file: string;
@@ -37,13 +35,14 @@ interface Mismatch {
 }
 
 const main = async () => {
-  const files = (await readdir(casesDir)).filter((f) => f.endsWith(".json")).sort();
+  const cases = loadCorpus().cases; // validated: buckets, sidecars, raw-text fidelity
   const mismatches: Mismatch[] = [];
   const wouldHaveQuarantined: string[] = []; // v1 would have benched these
   let pairChecks = 0;
 
-  for (const file of files) {
-    const raw = (await readFile(casesDir + file, "utf8")).trim();
+  for (const c of cases) {
+    const file = c.key; // e.g. "seeds/013-precision-loss-2pow53plus1.json"
+    const raw = c.text;
 
     // Informational only: show which cases v1 could not test but v2 now can.
     if (!ingestionFidelity(raw).faithful) wouldHaveQuarantined.push(file);
@@ -72,7 +71,7 @@ const main = async () => {
   }
 
   // ---- report -------------------------------------------------------------
-  console.log(`corpus: ${files.length} cases | tested: ${files.length} (lossless) | pair-checks: ${pairChecks}\n`);
+  console.log(`corpus: ${cases.length} cases | tested: ${cases.length} (lossless) | pair-checks: ${pairChecks}\n`);
 
   if (wouldHaveQuarantined.length) {
     console.log(`now-testable (v1 would have quarantined ${wouldHaveQuarantined.length}): ${wouldHaveQuarantined.join(", ")}\n`);

@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "number lexemes (-0, 1.0, exponent forms) are judged by value policy, not corrupted on ingestion"
+}

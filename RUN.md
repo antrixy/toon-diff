@@ -11,6 +11,14 @@ From the project root (the folder this file is in):
 3) Prove the oracle (no external deps needed):
      node --experimental-strip-types oracle/selftest-numbers.ts
    Expect: "V2 ORACLE PROVEN: all checks pass."
+3b) Prove the corpus loader (v0.3 — no external deps needed):
+     node --experimental-strip-types probe/selftest-corpus.ts
+   Expect: "CORPUS LOADER PROVEN: ..." The corpus now lives in provenance
+   buckets under probe/cases/{seeds,spec,regressions,generated,community}/,
+   each case as NNN-name.json + NNN-name.meta.json (origin + invariant).
+   The mutation substrate is seeds/ only. Fuzz recipes name seeds by corpus
+   key ("seeds/NNN-name.json"); replay-case also accepts pre-v0.3 flat names
+   from archived sweep baselines.
 4) Run the differential matrix:
      node --experimental-strip-types cli-v2.ts
 

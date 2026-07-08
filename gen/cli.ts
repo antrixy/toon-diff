@@ -15,8 +15,9 @@
 //   node --experimental-strip-types gen/cli.ts preview [--per 3] [--maxops 3] [--seed 1]
 //   node --experimental-strip-types gen/cli.ts write   [--per 20] [--maxops 3] [--seed 1] [--out probe/generated]
 
-import { readFileSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { loadCorpus } from "../probe/corpus.ts";
 import { generateCase } from "./generate.ts";
 
 const args = process.argv.slice(2);
@@ -30,9 +31,9 @@ const maxOps = parseInt(opt("maxops", "3"), 10);
 const baseSeed = parseInt(opt("seed", "1"), 10);
 const outDir = opt("out", "probe/generated");
 
-const casesDir = fileURLToPath(new URL("../probe/cases/", import.meta.url));
-const seeds = readdirSync(casesDir).filter((f) => f.endsWith(".json")).sort()
-  .map((f) => ({ name: f, text: readFileSync(casesDir + f, "utf8").trim() }));
+// Mutation substrate is the seeds/ bucket ONLY (see gen/fuzz.ts note).
+const seeds = loadCorpus().byBucket.seeds
+  .map((c) => ({ name: c.key, text: c.text }));
 
 // Distinct rngSeed per (seed, index) so the whole batch is one reproducible set.
 const rngSeedFor = (seedIdx: number, i: number) => (baseSeed * 1_000_003 + seedIdx * 9973 + i) >>> 0;

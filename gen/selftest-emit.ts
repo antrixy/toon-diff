@@ -15,13 +15,12 @@
 //
 // Run: node --experimental-strip-types gen/selftest-emit.ts
 
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { loadCorpus } from "../probe/corpus.ts";
 import { parse } from "./model.ts";
 import { emit } from "./emit.ts";
 import { equalRaw } from "../oracle/ingest.ts";
 
-const casesDir = fileURLToPath(new URL("../probe/cases/", import.meta.url));
+const corpusSeeds = loadCorpus().byBucket.seeds;
 let failures = 0;
 
 function check(label: string, ok: boolean) {
@@ -30,9 +29,9 @@ function check(label: string, ok: boolean) {
 }
 
 console.log("— parse->emit is VALUE-faithful on every seed (oracle is the judge) —");
-const files = readdirSync(casesDir).filter((f) => f.endsWith(".json")).sort();
-for (const f of files) {
-  const raw = readFileSync(casesDir + f, "utf8").trim();
+for (const c of corpusSeeds) {
+  const f = c.key;
+  const raw = c.text;
   const out = emit(parse(raw));
   check(`${f}: equalRaw(emit(parse(s)), s)`, equalRaw(out, raw));
   // And the emitted text must itself be valid JSON the oracle can ingest.
@@ -43,14 +42,14 @@ for (const f of files) {
 
 console.log("\n— BYTE-exact preservation of the differential-critical lexemes —");
 // 013: the integer that a JS f64 rounds to ...992. Must survive to the digit.
-const c013 = readFileSync(casesDir + "013-precision-loss-2pow53plus1.json", "utf8").trim();
+const c013 = corpusSeeds.find((c) => c.id === "013")!.text;
 check("013: emitted text contains literal 9007199254740993",
   emit(parse(c013)).includes("9007199254740993"));
 check("013: emitted text does NOT contain the rounded 9007199254740992",
   !emit(parse(c013)).includes("9007199254740992"));
 
 // 010: signed zero and trailing-zero float form must survive byte-exact.
-const c010 = readFileSync(casesDir + "010-numbers.json", "utf8").trim();
+const c010 = corpusSeeds.find((c) => c.id === "010")!.text;
 const out010 = emit(parse(c010));
 check("010: emitted text preserves -0 literally", out010.includes("-0"));
 check("010: emitted text preserves 1.0 literally", out010.includes("1.0"));

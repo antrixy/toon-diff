@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "an empty object round-trips as {} and is not confused with an empty array or null"
+}

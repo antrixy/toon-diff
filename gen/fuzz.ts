@@ -22,8 +22,7 @@
 //   node --experimental-strip-types gen/fuzz.ts [--per 200] [--maxops 3] [--seed 1]
 //                                               [--max-findings 100000] [--progress 100]
 
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { loadCorpus } from "../probe/corpus.ts";
 import { ingest, equal } from "../oracle/ingest.ts";
 import type { Adapter } from "../adapters/contract.ts";
 import { tsAdapter } from "../adapters/ts.ts";
@@ -45,9 +44,12 @@ const baseSeed = parseInt(opt("seed", "1"), 10);
 const maxFindings = parseInt(opt("max-findings", "100000"), 10);
 const progressEvery = parseInt(opt("progress", "100"), 10);
 
-const casesDir = fileURLToPath(new URL("../probe/cases/", import.meta.url));
-const seeds = readdirSync(casesDir).filter((f) => f.endsWith(".json")).sort()
-  .map((f) => ({ name: f, text: readFileSync(casesDir + f, "utf8").trim() }));
+// Mutation substrate is the seeds/ bucket ONLY: regressions, promoted fuzz
+// cases, and community cases protect specific invariants and are not mutation
+// stock. seedName is the corpus key ("seeds/NNN-name.json"), which replay-case
+// resolves relative to probe/cases/.
+const seeds = loadCorpus().byBucket.seeds
+  .map((c) => ({ name: c.key, text: c.text }));
 const rngSeedFor = (seedIdx: number, i: number) => (baseSeed * 1_000_003 + seedIdx * 9973 + i) >>> 0;
 
 const totalCases = seeds.length * per;

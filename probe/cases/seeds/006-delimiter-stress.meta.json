@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "strings containing TOON delimiters (commas, colons, newlines) survive quoting/escaping"
+}

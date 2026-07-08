@@ -21,7 +21,15 @@ const rngSeed = parseInt(rngSeedArg, 10);
 const maxOps = maxOpsArg ? parseInt(maxOpsArg, 10) : 3;
 
 const casesDir = fileURLToPath(new URL("../probe/cases/", import.meta.url));
-const seedText = readFileSync(casesDir + seedFile, "utf8").trim();
+// v0.3 recipes name seeds by corpus key ("seeds/NNN-name.json"); pre-v0.3
+// recipes (e.g. in archived sweep baselines) used the flat filename. Accept
+// both so no old recipe goes stale.
+let seedText: string;
+try {
+  seedText = readFileSync(casesDir + seedFile, "utf8").trim();
+} catch {
+  seedText = readFileSync(casesDir + "seeds/" + seedFile, "utf8").trim();
+}
 const g = generateCase(seedText, rngSeed, { seedName: seedFile, maxOps });
 
 console.error(`# seed=${seedFile} rngSeed=${rngSeed} maxOps=${maxOps}`);

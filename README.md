@@ -65,7 +65,9 @@ adapters/
   contract.ts          # one text-in/text-out protocol per implementation
   ts.ts                # @toon-format/toon (reference TS/JS)
   python.ts            # toon_format (official Python)
-probe/cases/           # 13 hand-designed cases targeting known fault lines
+probe/cases/           # corpus by provenance: seeds/ spec/ regressions/ generated/ community/
+                       #   each case: NNN-name.json + NNN-name.meta.json (origin + invariant)
+                       #   seeds/ = 13 hand-designed cases targeting known fault lines
 ```
 
 Adding an implementation is one `Adapter` (text in, text out). More

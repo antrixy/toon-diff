@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "a uniform array of same-keyed objects survives TOON's tabular encoding losslessly"
+}

@@ -30,6 +30,15 @@ const args = process.argv.slice(2);
 const opt = (n: string): string | null => { const i = args.indexOf("--" + n); return i >= 0 && args[i + 1] ? args[i + 1] : null; };
 
 const casesDir = fileURLToPath(new URL("../probe/cases/", import.meta.url));
+// Recipes name seeds by corpus key ("seeds/NNN-name.json") since v0.3, or by
+// flat filename in pre-v0.3 recipes and archived sweep baselines. Accept both.
+function readSeed(seedFile: string): string {
+  try {
+    return readFileSync(casesDir + seedFile, "utf8").trim();
+  } catch {
+    return readFileSync(casesDir + "seeds/" + seedFile, "utf8").trim();
+  }
+}
 const sigLine = (s: Signature) => `${s.from} → ${s.to}  ${s.kind}  ${s.fp}`;
 
 async function shrinkOne(caseText: string, label: string): Promise<void> {
@@ -84,7 +93,7 @@ const main = async () => {
       // Shrink each; dedup final minimal cases by their text so identical minimals collapse.
       const seenMinimal = new Set<string>();
       for (const rep of reps) {
-        const seedText = readFileSync(casesDir + rep.seed, "utf8").trim();
+        const seedText = readSeed(rep.seed);
         const caseText = generateCase(seedText, rep.rng, { seedName: rep.seed, maxOps: rep.maxOps }).text;
         const targets = await captureSignatures(caseText, adapters);
         if (targets.length === 0) continue;
@@ -103,7 +112,7 @@ const main = async () => {
       await shrinkOne(opt("json")!, "inline json");
     } else if (opt("seed") && opt("rng")) {
       const seed = opt("seed")!, rng = parseInt(opt("rng")!, 10), maxOps = parseInt(opt("maxops") ?? "3", 10);
-      const seedText = readFileSync(casesDir + seed, "utf8").trim();
+      const seedText = readSeed(seed);
       const caseText = generateCase(seedText, rng, { seedName: seed, maxOps }).text;
       await shrinkOne(caseText, `seed=${seed} rng=${rng} maxOps=${maxOps}`);
     } else {

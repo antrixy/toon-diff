@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "2^53 (first doubtful integer) exposes each implementation's number model honestly"
+}

@@ -17,8 +17,7 @@
 //
 // Run: node --experimental-strip-types gen/selftest-operators.ts
 
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { loadCorpus } from "../probe/corpus.ts";
 import type { GNode, RawNum } from "./model.ts";
 import { parse, isRawNum, isArray, isObject, lexemeOf } from "./model.ts";
 import { emit } from "./emit.ts";
@@ -64,9 +63,7 @@ function maxArrayLen(n: GNode): number {
 
 // ==========================================================================
 console.log("— (1) bulk: every generated case is valid JSON the oracle can ingest —");
-const casesDir = fileURLToPath(new URL("../probe/cases/", import.meta.url));
-const seeds = readdirSync(casesDir).filter((f) => f.endsWith(".json")).sort()
-  .map((f) => ({ name: f, text: readFileSync(casesDir + f, "utf8").trim() }));
+const seeds = loadCorpus().byBucket.seeds.map((c) => ({ name: c.key, text: c.text }));
 
 let generated = 0, reingestOk = 0;
 let sawWideObject = false, sawLargeTable = false;
@@ -227,7 +224,7 @@ const rng = () => makeRng(0xC0FFEE);
 // ==========================================================================
 console.log("\n— (3) determinism & replay —");
 {
-  const seed = seeds.find((s) => s.name.startsWith("004"))!;
+  const seed = seeds.find((s) => s.name.startsWith("seeds/004"))!;
   const a = generateCase(seed.text, 123456, { maxOps: 3 }).text;
   const b = generateCase(seed.text, 123456, { maxOps: 3 }).text;
   check("generateCase is deterministic (identical bytes)", a === b);

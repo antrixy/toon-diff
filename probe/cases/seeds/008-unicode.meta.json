@@ -1,0 +1,4 @@
+{
+  "origin": "hand-written v0.1 seed",
+  "invariant": "non-ASCII, astral-plane, and combining characters round-trip byte-exactly"
+}
