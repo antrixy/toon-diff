@@ -14,8 +14,7 @@
 // FULL ENV ONLY (needs the python impl installed).
 // Run: node --experimental-strip-types adapters/selftest-parity.ts [--per 30]
 
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { loadCorpus } from "../probe/corpus.ts";
 import { pythonAdapter } from "./python.ts";
 import { pythonAdapterPersistent, shutdownPython } from "./python-persistent.ts";
 import { generateCase } from "../gen/generate.ts";
@@ -24,9 +23,7 @@ const args = process.argv.slice(2);
 const perArg = args.indexOf("--per");
 const per = perArg >= 0 && args[perArg + 1] ? parseInt(args[perArg + 1], 10) : 30;
 
-const casesDir = fileURLToPath(new URL("../probe/cases/", import.meta.url));
-const seeds = readdirSync(casesDir).filter((f) => f.endsWith(".json")).sort()
-  .map((f) => ({ name: f, text: readFileSync(casesDir + f, "utf8").trim() }));
+const seeds = loadCorpus().byBucket.seeds.map((c) => ({ name: c.key, text: c.text }));
 
 type Attempt = { ok: boolean; val?: string; err?: string };
 async function attempt(fn: () => Promise<string>): Promise<Attempt> {
