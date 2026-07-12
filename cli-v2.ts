@@ -22,6 +22,7 @@ import type { Adapter } from "./adapters/contract.ts";
 import { tsAdapter } from "./adapters/ts.ts";
 import { pythonAdapter } from "./adapters/python.ts";
 import { rustAdapter } from "./adapters/rust.ts";
+import { explain, renderExplainReport } from "./probe/explain.ts";
 
 const adapters: Adapter[] = [tsAdapter, pythonAdapter, rustAdapter];
 
@@ -35,7 +36,8 @@ interface Mismatch {
 }
 
 const main = async () => {
-  const cases = loadCorpus().cases; // validated: buckets, sidecars, raw-text fidelity
+  const corpus = loadCorpus(); // validated: buckets, sidecars, raw-text fidelity
+  const cases = corpus.cases;
   const mismatches: Mismatch[] = [];
   const wouldHaveQuarantined: string[] = []; // v1 would have benched these
   let pairChecks = 0;
@@ -86,6 +88,11 @@ const main = async () => {
       if (m.error) { console.log(`  error:    ${m.error}\n`); continue; }
       console.log(`  expected: ${m.expected}`);
       console.log(`  actual:   ${m.actual}\n`);
+    }
+    // Interpretation layer: rules, clause citations, spec-version verdicts.
+    // Raw divergences above are the evidence; this is what they MEAN.
+    for (const line of renderExplainReport(explain(mismatches, corpus))) {
+      console.log(line);
     }
   }
   process.exit(mismatches.length === 0 ? 0 : 1);
