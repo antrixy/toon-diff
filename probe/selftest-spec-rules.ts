@@ -53,12 +53,14 @@ ok("002 rule is citable", isCitable(ea), true);
 ok("002 rule cites four sections", ea.sections.length, 4);
 ok("002 rule cites its CHANGELOG entry", ea.changelog, "[3.1] 2026-05-18");
 ok("002 rule carries upstream refs", (ea.refs ?? []).length >= 2, true);
+ok("002 rule constrains the decoder", ea.appliesTo, "decoder");
 
 const ip = rules.get("integer-precision-lossless")!;
 ok("013 rule present", ip !== undefined, true);
 ok("013 rule is a stub (not citable)", isCitable(ip), false);
 ok("013 stub still carries its upstream ref", (ip.refs ?? []).some((r) => r.includes("issues/322")), true);
 ok("013 stub notes demand browser verification", (ip.notes ?? "").includes("verify-in-browser"), true);
+ok("013 rule constrains the round trip", ip.appliesTo, "round-trip");
 
 // The 002 episode as a truth table. Verdicts are CONDITIONAL on an observed
 // divergence — explain-layer code only asks about the failing side.
@@ -105,6 +107,7 @@ const good = (over: Partial<SpecRule> = {}): SpecRule => ({
   sections: ["1"],
   introducedIn: "3.1",
   changelog: "[3.1] 2026-05-18",
+  appliesTo: "decoder",
   ...over,
 });
 
@@ -129,6 +132,9 @@ expectProblem("malformed introducedIn", "MAJOR.MINOR", [good({ introducedIn: "3.
 expectProblem("versioned rule without changelog", "CHANGELOG entry must be cited", [good({ changelog: null })]);
 expectProblem("changelog without introducedIn", "cite both or neither", [
   good({ introducedIn: null, changelog: "[3.1] 2026-05-18" }),
+]);
+expectProblem("invalid appliesTo", `must be "encoder", "decoder", or "round-trip"`, [
+  good({ appliesTo: "parser" as SpecRule["appliesTo"] }),
 ]);
 
 // One bad rule poisons an otherwise-good registry.
