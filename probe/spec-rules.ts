@@ -39,6 +39,12 @@ export interface SpecRule {
   introducedIn: string | null;
   /** CHANGELOG entry citation (required when introducedIn is set), e.g. "[3.1] 2026-05-18". */
   changelog: string | null;
+  /**
+   * Which side of a pair-check the rule constrains. Verdicts are computed
+   * ONLY for constrained sides: "decoder" rules never indict the encoder,
+   * and "round-trip" rules indict both endpoints without attributing which.
+   */
+  appliesTo: "encoder" | "decoder" | "round-trip";
   /** Optional: upstream issues, spec URLs, evidence. */
   refs?: string[];
   /** Optional: caveats, TODOs, verification notes. */
@@ -53,6 +59,7 @@ export const SPEC_RULES: SpecRule[] = [
     sections: ["4", "5", "9.1", "13.2"],
     introducedIn: "3.1",
     changelog: "[3.1] 2026-05-18",
+    appliesTo: "decoder",
     refs: [
       "https://github.com/toon-format/spec/blob/main/SPEC.md",
       "https://github.com/toon-format/toon-python/issues/61",
@@ -68,6 +75,7 @@ export const SPEC_RULES: SpecRule[] = [
     sections: [], // STUB: governing sections not yet verified against live SPEC.md — do not cite
     introducedIn: null,
     changelog: null,
+    appliesTo: "round-trip",
     refs: ["https://github.com/toon-format/toon/issues/322"],
     notes:
       "TODO(verify-in-browser): fill sections from live SPEC.md before this rule may be cited in explanations; divergence evidence lives in seeds/013",
@@ -160,6 +168,11 @@ export function validateSpecRules(rules: SpecRule[] = SPEC_RULES): string[] {
     if (r.introducedIn === null && r.changelog !== null) {
       problems.push(
         `${where}: changelog cited but introducedIn is null — cite both or neither`,
+      );
+    }
+    if (!["encoder", "decoder", "round-trip"].includes(r.appliesTo)) {
+      problems.push(
+        `${where}: appliesTo must be "encoder", "decoder", or "round-trip" (got ${JSON.stringify(r.appliesTo)})`,
       );
     }
   });
