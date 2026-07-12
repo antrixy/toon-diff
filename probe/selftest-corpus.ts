@@ -39,6 +39,12 @@ ok("every meta has origin + invariant", corpus.cases.every((c) => c.meta.origin.
 const c013 = corpus.cases.find((c) => c.id === "013")!;
 ok("013 carries refs", Array.isArray(c013.meta.refs) && c013.meta.refs.length > 0, true);
 
+// Spec-rule references (v0.3 explained-failures wiring).
+const c002 = corpus.cases.find((c) => c.id === "002")!;
+ok("002 references its spec rule", (c002.meta.specRules ?? []).includes("empty-array-canonical-literal"), true);
+ok("013 references its spec rule (stub)", (c013.meta.specRules ?? []).includes("integer-precision-lossless"), true);
+ok("only 002 and 013 carry specRules so far", corpus.cases.filter((c) => c.meta.specRules !== undefined).length, 2);
+
 // Raw-text fidelity: loader output must be the on-disk bytes, trimmed only.
 const raw013 = readFileSync(join(defaultCorpusRoot(), "seeds/013-precision-loss-2pow53plus1.json"), "utf8").trim();
 ok("013 text is byte-identical to disk (trim only)", c013.text === raw013, true);
@@ -104,6 +110,30 @@ expectReject("meta missing invariant", `"invariant" must be a non-empty string`,
   mkdirSync(d);
   writeFileSync(join(d, "001-a.json"), `{}`);
   writeFileSync(join(d, "001-a.meta.json"), `{"origin":"t"}`);
+});
+expectReject("specRules with unknown rule id", `unknown rule "no-such-rule"`, (root) => {
+  const d = join(root, "seeds");
+  mkdirSync(d);
+  writeFileSync(join(d, "001-a.json"), `{}`);
+  writeFileSync(join(d, "001-a.meta.json"), `{"origin":"t","invariant":"t","specRules":["no-such-rule"]}`);
+});
+expectReject("specRules with wrong shape", `"specRules" must be an array`, (root) => {
+  const d = join(root, "seeds");
+  mkdirSync(d);
+  writeFileSync(join(d, "001-a.json"), `{}`);
+  writeFileSync(join(d, "001-a.meta.json"), `{"origin":"t","invariant":"t","specRules":"empty-array-canonical-literal"}`);
+});
+expectReject("specRules empty array", `omit the field or list at least one`, (root) => {
+  const d = join(root, "seeds");
+  mkdirSync(d);
+  writeFileSync(join(d, "001-a.json"), `{}`);
+  writeFileSync(join(d, "001-a.meta.json"), `{"origin":"t","invariant":"t","specRules":[]}`);
+});
+expectReject("specRules duplicate ids", `must not contain duplicate rule ids`, (root) => {
+  const d = join(root, "seeds");
+  mkdirSync(d);
+  writeFileSync(join(d, "001-a.json"), `{}`);
+  writeFileSync(join(d, "001-a.meta.json"), `{"origin":"t","invariant":"t","specRules":["empty-array-canonical-literal","empty-array-canonical-literal"]}`);
 });
 expectReject("meta with unknown field", `unknown field "fix"`, (root) => {
   const d = join(root, "seeds");
