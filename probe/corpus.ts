@@ -30,6 +30,7 @@ import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ingest } from "../oracle/ingest.ts";
+import { validateSpecRules, SPEC_RULES, type SpecRule } from "./spec-rules.ts";
 
 export const BUCKETS = [
   "seeds",
@@ -47,6 +48,8 @@ export interface CaseMeta {
   invariant: string;
   /** Optional: spec clauses ("§2.1"), upstream issues (URLs), etc. */
   refs?: string[];
+  /** Optional: spec-rule registry ids this case exercises (see probe/spec-rules.ts). */
+  specRules?: string[];
 }
 
 export interface CorpusCase {
@@ -83,6 +86,17 @@ export function loadCorpus(root: string = defaultCorpusRoot()): Corpus {
   ) as Record<Bucket, CorpusCase[]>;
 
   if (!existsSync(root)) throw new Error(`corpus root not found: ${root}`);
+
+  // The spec-rule registry is part of corpus semantics: sidecars may reference
+  // rules by id, so a broken registry refuses the corpus. Resolution of ids is
+  // only meaningful against a CLEAN registry — when it has problems, those
+  // alone refuse the load and per-case resolution is skipped as noise.
+  const registryProblems = validateSpecRules();
+  for (const p of registryProblems) problems.push(`spec-rule registry: ${p}`);
+  const knownRules: ReadonlySet<string> =
+    registryProblems.length === 0
+      ? new Set(SPEC_RULES.map((r: SpecRule) => r.id))
+      : new Set();
 
   // Anything at the top level that isn't a known bucket is a mistake —
   // most likely a case file left in the pre-v0.3 flat layout.
@@ -155,6 +169,17 @@ export function loadCorpus(root: string = defaultCorpusRoot()): Corpus {
         continue;
       }
 
+      // Rule references resolve against the registry, all-or-nothing.
+      if (meta.specRules && registryProblems.length === 0) {
+        for (const rid of meta.specRules) {
+          if (!knownRules.has(rid)) {
+            problems.push(
+              `${bucket}/${metaName}: specRules references unknown rule "${rid}" (see probe/spec-rules.ts)`,
+            );
+          }
+        }
+      }
+
       const c: CorpusCase = {
         id,
         name,
@@ -202,8 +227,20 @@ function validateMeta(raw: unknown): CaseMeta {
       bad.push(`"refs" must be an array of non-empty strings`);
     }
   }
+  if (o.specRules !== undefined) {
+    if (
+      !Array.isArray(o.specRules) ||
+      !o.specRules.every((r) => typeof r === "string" && r.trim() !== "")
+    ) {
+      bad.push(`"specRules" must be an array of non-empty strings`);
+    } else if (o.specRules.length === 0) {
+      bad.push(`"specRules" must not be empty — omit the field or list at least one rule id`);
+    } else if (new Set(o.specRules.map((r) => r.trim())).size !== o.specRules.length) {
+      bad.push(`"specRules" must not contain duplicate rule ids`);
+    }
+  }
   for (const k of Object.keys(o)) {
-    if (k !== "origin" && k !== "invariant" && k !== "refs") {
+    if (k !== "origin" && k !== "invariant" && k !== "refs" && k !== "specRules") {
       bad.push(`unknown field "${k}"`);
     }
   }
@@ -212,5 +249,8 @@ function validateMeta(raw: unknown): CaseMeta {
     origin: (o.origin as string).trim(),
     invariant: (o.invariant as string).trim(),
     ...(o.refs !== undefined ? { refs: (o.refs as string[]).map((r) => r.trim()) } : {}),
+    ...(o.specRules !== undefined
+      ? { specRules: (o.specRules as string[]).map((r) => r.trim()) }
+      : {}),
   };
 }
