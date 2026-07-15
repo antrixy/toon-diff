@@ -23,6 +23,7 @@ import { tsAdapter } from "./adapters/ts.ts";
 import { pythonAdapter } from "./adapters/python.ts";
 import { rustAdapter } from "./adapters/rust.ts";
 import { explain, renderExplainReport } from "./probe/explain.ts";
+import { buildGrid, renderGridReport } from "./probe/grid.ts";
 
 const adapters: Adapter[] = [tsAdapter, pythonAdapter, rustAdapter];
 
@@ -78,6 +79,12 @@ const main = async () => {
   if (wouldHaveQuarantined.length) {
     console.log(`now-testable (v1 would have quarantined ${wouldHaveQuarantined.length}): ${wouldHaveQuarantined.join(", ")}\n`);
   }
+
+  // NxN overview first: which PAIRS disagree, on how many cases, and (per
+  // divergent case) error vs value-mismatch. Detail blocks follow as evidence.
+  const grid = buildGrid(mismatches, adapters.map((a) => a.name), cases.map((c) => c.key));
+  for (const line of renderGridReport(grid)) console.log(line);
+  console.log();
 
   if (mismatches.length === 0) {
     console.log("ALL PAIRS AGREE on every case.");
