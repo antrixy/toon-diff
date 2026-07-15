@@ -62,11 +62,12 @@ export const SPEC_RULES: SpecRule[] = [
     appliesTo: "decoder",
     refs: [
       "https://github.com/toon-format/spec/blob/main/SPEC.md",
+      "https://github.com/toon-format/toon/issues/322",
       "https://github.com/toon-format/toon-python/issues/61",
       "https://github.com/toon-format/toon-rust/issues/76",
     ],
     notes:
-      "verified against live SPEC.md v3.3 in browser (Jul 2026 session); fetched copies of the spec have been observed stale — reverify in browser before editing sections",
+      "verified against live SPEC.md v3.3 in browser (Jul 2026 session); fetched copies of the spec have been observed stale — reverify in browser before editing sections. Upstream encoder issue toon#322 closed Jul 2026 as resolved-by-spec (AI triage: v3.3 §9.1 blesses [] as SHOULD, decoders MUST accept both — verify §9.1 language in browser); python decoder fix still tracked at toon-python#61",
   },
   {
     id: "integer-precision-lossless",
@@ -76,9 +77,8 @@ export const SPEC_RULES: SpecRule[] = [
     introducedIn: null,
     changelog: null,
     appliesTo: "round-trip",
-    refs: ["https://github.com/toon-format/toon/issues/322"],
     notes:
-      "TODO(verify-in-browser): fill sections from live SPEC.md before this rule may be cited in explanations; divergence evidence lives in seeds/013",
+      "TODO(verify-in-browser): fill sections from live SPEC.md before this rule may be cited in explanations; divergence evidence lives in seeds/013. NO upstream issue filed yet (browser-verified 2026-07-15 via author-issues search); the earlier toon#322 ref here was a recon error — #322 is the empty-array issue. Candidate for upstream filing once stub promotion supplies spec citations",
   },
 ];
 

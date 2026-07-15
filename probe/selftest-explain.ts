@@ -81,7 +81,7 @@ ok("013 ts->ts: one side, role both", rTsTs.verdicts.length === 1 && rTsTs.verdi
 ok("013 ts->ts: ts violates its claimed 3.3", rTsTs.verdicts[0].verdict, "violates-claimed");
 ok("013 citation is pending", rTsTs.citationPending, true);
 ok("013 citation is null", rTsTs.citation, null);
-ok("013 refs carry toon#322", rTsTs.refs.some((r) => r.includes("issues/322")), true);
+ok("013 carries no upstream refs (none filed yet; old toon#322 ref was a recon error)", rTsTs.refs.length, 0);
 
 const ePyTs = report.explanations[5];
 const rPyTs = ePyTs.rules[0];
