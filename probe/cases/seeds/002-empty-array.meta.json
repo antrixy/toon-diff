@@ -3,6 +3,7 @@
   "invariant": "an empty array round-trips as [] and is not confused with an empty object; canonical root form [] (spec >=3.1, SPEC 3.3 sections 4, 5, 9.1, 13.2) must be accepted by every decoder",
   "refs": [
     "https://github.com/toon-format/spec/blob/main/SPEC.md",
+    "https://github.com/toon-format/toon/issues/322",
     "https://github.com/toon-format/toon-python/issues/61",
     "https://github.com/toon-format/toon-rust/issues/76"
   ],
