@@ -21,15 +21,22 @@ on inputs no fixture anticipated — which is where silent disagreements hide.
 
 Every implementation round-trips its *own* output fine, so single-implementation
 testing looks green. The bugs live at the boundary between implementations, and
-they tend to be **silent** — wrong data with no error raised. From the first real
-run against two published implementations, two such bugs:
+they tend to be **silent** — wrong data with no error raised. Findings from
+running the three official implementations against each other:
 
-| Case | What happens | Filed upstream |
+| Case | What happens | Upstream trail |
 |---|---|---|
-| Integer `2^53 + 1` | TS path silently rounds `9007199254740993` → `…992`; Python preserves it. Each side round-trips its own value; only crossing them reveals the loss | spec §2 permits precision loss for out-of-range numbers *if documented* — tracked, not yet filed |
-| Empty array `[]` | TS encodes `[]` (non-canonical); Python's decoder returns the string `'['`, dropping a char; canonical is `[0]:`. Each decoder reads its own encoder's output fine | encoder: [toon#322](https://github.com/toon-format/toon/issues/322) · decoder: [toon-python#61](https://github.com/toon-format/toon-python/issues/61) |
+| Integer `2^53 + 1` | TS path silently rounds `9007199254740993` → `…992` at `JSON.parse`; Python and Rust preserve it. Every TS-involving pair loses the integer; each side round-trips its own value fine | no issue filed yet — spec §2 permits precision loss *if documented*; filing under consideration |
+| Empty array `[]` | TS emits bare `[]` (now the spec-v3.3 SHOULD form); Python's decoder silently returns the *string* `"[]"`, Rust's rejects with a parse error. Each decoder reads its own encoder's output fine | encoder: [toon#322](https://github.com/toon-format/toon/issues/322) (closed — resolved by spec v3.3) · decoders: [toon-python#61](https://github.com/toon-format/toon-python/issues/61), [toon-rust PR #71](https://github.com/toon-format/toon-rust/pull/71) |
+| Quoted structural lookalikes | A quoted string shaped like an array header (`"[2]:"`) breaks the TS decoder's scan of its own encoder's output — silently, when the fake header's item count matches | [toon#324](https://github.com/toon-format/toon/issues/324) (escalated; quote-aware fix direction adopted in triage) |
 
-Both are **silent corruption** — the through-line of the project. A wrong value
+More findings — a Rust encoder emitting grammar its own decoder rejects
+([toon-rust#74](https://github.com/toon-format/toon-rust/issues/74)), a Python
+encoder silently dropping an empty-string key
+([toon-python#64](https://github.com/toon-format/toon-python/issues/64)) —
+with full trails in [RETROSPECTIVE.md](./RETROSPECTIVE.md).
+
+All of it is **silent corruption** — the through-line of the project. A wrong value
 that flows downstream with no signal is more dangerous than a thrown error, and
 it is exactly what a differential cross-decode surfaces and a same-implementation
 test cannot.
@@ -54,20 +61,26 @@ It is proven independent of any TOON implementation by a self-test
 ## Layout
 
 ```
-cli-v2.ts              # runs the N×N differential matrix over the corpus
+cli-v2.ts              # runs the N×N differential matrix: grid overview,
+                       #   divergence detail, spec-cited explanations
 oracle/
   ingest.ts            # v2 lossless number-faithful ingestion + canonical compare
-  compare.ts           # v1 comparator + ingestionFidelity (used for the v1-vs-v2 note)
-  canonicalize.ts      # v1 canonical form (key sort, type-strict equality)
-  selftest.ts          # proves the v1 oracle
   selftest-numbers.ts  # proves the v2 oracle, no implementation needed
 adapters/
-  contract.ts          # one text-in/text-out protocol per implementation
-  ts.ts                # @toon-format/toon (reference TS/JS)
-  python.ts            # toon_format (official Python)
-probe/cases/           # corpus by provenance: seeds/ spec/ regressions/ generated/ community/
-                       #   each case: NNN-name.json + NNN-name.meta.json (origin + invariant)
-                       #   seeds/ = 13 hand-designed cases targeting known fault lines
+  contract.ts          # one text-in/text-out protocol per implementation, plus
+                       #   IMPL_CLAIMS: each impl's claimed spec version, with
+                       #   evidence and browser-verification date
+  ts.ts / python.ts / rust.ts        # the three official implementations
+gen/                   # deterministic mutation generator, fuzz loop over the
+                       #   matrix, non-contiguous ddmin shrinker, case replay
+probe/
+  cases/               # corpus by provenance: seeds/ spec/ regressions/
+                       #   generated/ community/ — each case NNN-name.json +
+                       #   NNN-name.meta.json (origin + invariant + spec rules)
+  spec-rules.ts        # rule registry: spec sections, changelog entry that
+                       #   introduced the rule, which side it constrains
+  explain.ts           # divergence -> rule -> citation -> per-side verdict
+  grid.ts              # N×N grid report (aggregate + per divergent case)
 ```
 
 Adding an implementation is one `Adapter` (text in, text out). More
@@ -85,13 +98,26 @@ node --experimental-strip-types oracle/selftest-numbers.ts       # prove the ora
 node --experimental-strip-types cli-v2.ts                        # run the matrix
 ```
 
+The Rust adapter needs its bridge built once (cargo); full environment and
+selftest walkthrough in [RUN.md](./RUN.md).
+
 ## Status
 
-Early. The corpus is 13 hand-designed probes, not yet a generative fuzzer; the
-roadmap is a mutation-based generator with shrinking, plus Rust and additional
-adapters. Findings are filed upstream against the individual implementations
-([toon#322](https://github.com/toon-format/toon/issues/322),
-[toon-python#61](https://github.com/toon-format/toon-python/issues/61)).
+v0.3. The corpus lives in provenance buckets with 13 hand-designed seeds as
+the mutation substrate; a deterministic generator with a ddmin shrinker fuzzes
+the matrix (v0.2); divergences are *explained* — spec-rule citations,
+changelog dates, and a per-side verdict (behind / violates-claimed /
+violates-current, computed from each implementation's own claimed spec
+version) — and summarized in an N×N grid (v0.3).
+
+Current baseline: 13 cases, 117 pair-checks, 7 divergences, 7 explained.
+Watched upstream: [toon-rust PR #71](https://github.com/toon-format/toon-rust/pull/71)
+(clears the empty-array divergences on merge) and
+[toon#324](https://github.com/toon-format/toon/issues/324) (quoted-scalar fix
+direction adopted in triage).
+
+The full story — findings, upstream trails, and the lessons — is in
+[RETROSPECTIVE.md](./RETROSPECTIVE.md).
 
 ## License
 
