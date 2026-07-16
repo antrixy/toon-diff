@@ -1,6 +1,6 @@
 {
   "origin": "hand-written v0.1 seed",
   "invariant": "2^53+1 detects silent IEEE-754 precision loss; known TS-side divergence, not a harness bug",
-  "refs": ["RUN.md \"what to expect\""],
+  "refs": ["RUN.md \"what to expect\"", "https://github.com/toon-format/toon/issues/329"],
   "specRules": ["integer-precision-lossless"]
 }
