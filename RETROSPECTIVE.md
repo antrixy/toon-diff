@@ -201,11 +201,13 @@ Open threads with defined outcomes: [toon-rust PR
 002's two divergences (new baseline: 5, all 013) and trip the `IMPL_CLAIMS`
 selftest until Rust's claim is re-verified; the toon#324 fix landing changes
 the lookalike fault class in TS, with its minimal case queued for promotion
-into `probe/cases/regressions/`. The 2^53+1 finding remains a candidate for
-upstream filing — anchored, per the #322 lesson, to observed round-trip
-corruption rather than to any single clause reading a future spec revision
-could moot. Spec §2 permits documented precision loss; whether silent loss on
-canonical wires qualifies is the question the filing would pose.
+into `probe/cases/regressions/`. The 2^53+1 finding is now filed as
+[toon#329](https://github.com/toon-format/toon/issues/329) — anchored, per
+the #322 lesson, to observed round-trip corruption. The spec deep-dive that
+shaped it found §2/§4 *permit* documented approximation; the nonconformance
+is the absence of a documented decoder out-of-range policy, which §4 makes a
+MUST — while the implementation's own docs claim lossless round-trips and its
+encoder already handles the same values losslessly.
 
 And one external signal worth recording: the toon#324 thread is now cited by
 an independent fixtures corpus

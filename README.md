@@ -26,7 +26,7 @@ running the three official implementations against each other:
 
 | Case | What happens | Upstream trail |
 |---|---|---|
-| Integer `2^53 + 1` | TS path silently rounds `9007199254740993` → `…992` at `JSON.parse`; Python and Rust preserve it. Every TS-involving pair loses the integer; each side round-trips its own value fine | no issue filed yet — spec §2 permits precision loss *if documented*; filing under consideration |
+| Integer `2^53 + 1` | TS path silently rounds `9007199254740993` → `…992` at `JSON.parse`; Python and Rust preserve it. Every TS-involving pair loses the integer; each side round-trips its own value fine | [toon#329](https://github.com/toon-format/toon/issues/329) — decoder-side: `decode()` silently approximates valid wire tokens with no documented out-of-range policy (§4 MUST); filed 2026-07-16 |
 | Empty array `[]` | TS emits bare `[]` (now the spec-v3.3 SHOULD form); Python's decoder silently returns the *string* `"[]"`, Rust's rejects with a parse error. Each decoder reads its own encoder's output fine | encoder: [toon#322](https://github.com/toon-format/toon/issues/322) (closed — resolved by spec v3.3) · decoders: [toon-python#61](https://github.com/toon-format/toon-python/issues/61), [toon-rust PR #71](https://github.com/toon-format/toon-rust/pull/71) |
 | Quoted structural lookalikes | A quoted string shaped like an array header (`"[2]:"`) breaks the TS decoder's scan of its own encoder's output — silently, when the fake header's item count matches | [toon#324](https://github.com/toon-format/toon/issues/324) (escalated; quote-aware fix direction adopted in triage) |
 

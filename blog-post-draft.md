@@ -64,7 +64,11 @@ implementation round-trips its *own* output fine. That's why
 single-implementation test suites stay green while this class of bug ships:
 the failures live at the boundary between implementations, and they're
 silent. A wrong value with no error is worse than a crash, and it's exactly
-what crossing implementations surfaces.
+what crossing implementations surfaces. (That finding is now filed as
+[toon#329](https://github.com/toon-format/toon/issues/329) — a spec
+deep-dive showed the sharpest form is decoder-side: `decode()` silently
+approximates valid wire tokens with no documented out-of-range policy,
+which the spec makes a MUST.)
 
 Other findings from the same loop, all filed upstream with minimized repros:
 a Rust encoder emitting grammar its own decoder rejects
