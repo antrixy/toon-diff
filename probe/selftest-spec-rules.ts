@@ -58,7 +58,7 @@ ok("002 rule constrains the decoder", ea.appliesTo, "decoder");
 const ip = rules.get("integer-precision-lossless")!;
 ok("013 rule present", ip !== undefined, true);
 ok("013 rule is citable (promoted 2026-07-16)", isCitable(ip), true);
-ok("013 stub carries no upstream ref (none filed — browser-verified 2026-07-15)", (ip.refs ?? []).length, 0);
+ok("013 rule refs its upstream filing toon#329", (ip.refs ?? []).some((r) => r.includes("issues/329")), true);
 ok("013 rule cites three sections (2, 3, 4)", (ip.sections ?? []).length, 3);
 ok("013 rule constrains the round trip", ip.appliesTo, "round-trip");
 

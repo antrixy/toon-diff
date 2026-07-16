@@ -77,8 +77,12 @@ export const SPEC_RULES: SpecRule[] = [
     introducedIn: "1.3",
     changelog: "[1.3] 2025-10-31",
     appliesTo: "round-trip",
+    refs: [
+      "https://github.com/toon-format/spec/blob/main/SPEC.md",
+      "https://github.com/toon-format/toon/issues/329",
+    ],
     notes:
-      "browser-verified 2026-07-16 against live SPEC.md v3.3 + CHANGELOG ([1.3] added 'all implementations MUST preserve round-trip fidelity (§2)'; [1.4] added decoder out-of-range handling; [3.3] spelled out the round-trip equality predicate). Empirically the 2^53+1 loss sits in the TS f64 path on BOTH sides: host ingestion rounds before encode (partial §3 defense), and decode() returns an approximate value for a valid wire token with NO documented out-of-range policy — while the TS docs affirmatively claim lossless round-trips, and normalize.ts already quotes out-of-range BigInt losslessly. Rule stays round-trip: the machinery does not attribute per-pair. NO upstream issue filed yet; filing drafted, decoder-side leading",
+      "browser-verified 2026-07-16 against live SPEC.md v3.3 + CHANGELOG ([1.3] added 'all implementations MUST preserve round-trip fidelity (§2)'; [1.4] added decoder out-of-range handling; [3.3] spelled out the round-trip equality predicate). Empirically the 2^53+1 loss sits in the TS f64 path on BOTH sides: host ingestion rounds before encode (partial §3 defense), and decode() returns an approximate value for a valid wire token with NO documented out-of-range policy — while the TS docs affirmatively claim lossless round-trips, and normalize.ts already quotes out-of-range BigInt losslessly. Rule stays round-trip: the machinery does not attribute per-pair. Filed upstream as toon#329 (2026-07-16), decoder-side leading",
   },
 ];
 

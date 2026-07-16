@@ -81,7 +81,7 @@ ok("013 ts->ts: one side, role both", rTsTs.verdicts.length === 1 && rTsTs.verdi
 ok("013 ts->ts: ts violates its claimed 3.3", rTsTs.verdicts[0].verdict, "violates-claimed");
 ok("013 citation is real (rule promoted)", rTsTs.citationPending, false);
 ok("013 citation cites the [1.3] changelog", (rTsTs.citation ?? "").includes("[1.3] 2025-10-31"), true);
-ok("013 carries no upstream refs (none filed yet; old toon#322 ref was a recon error)", rTsTs.refs.length, 0);
+ok("013 refs carry toon#329 (filed 2026-07-16)", rTsTs.refs.some((r) => r.includes("issues/329")), true);
 
 const ePyTs = report.explanations[5];
 const rPyTs = ePyTs.rules[0];
