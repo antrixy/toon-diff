@@ -3,7 +3,7 @@
 
 TITLE:
 decode() silently approximates out-of-range integer tokens; no documented
-out-of-range policy (§4 MUST), while docs claim lossless round-trips
+decoder out-of-range policy (§4)
 
 ---
 
@@ -43,19 +43,26 @@ a valid, in-grammar integer token:
 import { decode } from "@toon-format/toon";
 
 console.log(decode("unsafe: 9007199254740993"));
-// Expected (lossless-first): { unsafe: 9007199254740993n } or { unsafe: "9007199254740993" }
-// Or (documented-policy branch): an approximate value, per a documented policy
-// Actual: { unsafe: 9007199254740992 } — approximate value, no error, no documented policy
+// Actual: { unsafe: 9007199254740992 } — approximate value, no error
 ```
 
-No out-of-range policy is documented anywhere in the repository (README,
-docs/, API reference). The documentation instead makes the opposite claim in
-several places: "deterministic, lossless round-trips" (docs/index.md,
-packages/toon/README.md), "round-trips preserve all data and structure" and
-"`decode(encode(x))` always equals `x`" (docs/guide/getting-started.md),
-"TOON provides lossless round-trips after normalization"
-(docs/reference/api.md) — where the named normalization examples are non-JSON
-host types like `Date`, not plain JSON numbers.
+Environment: `@toon-format/toon` 2.3.0, Node 24.4.1, macOS 26.5.1.
+
+I could not find a documented out-of-range policy **for the decoder** in the
+README, docs/, or API reference (searched: precision, out-of-range, numeric
+domain, MAX_SAFE_INTEGER, lossless, 2^53, IEEE, double precision, bigint).
+The encoder's host-value normalization *is* documented — the normalization
+table in docs/reference/api.md maps out-of-range `BigInt` to a quoted decimal
+string, with `"9007199254740993"` as its example — but no corresponding
+statement covers what `decode()` returns for an out-of-range wire token.
+
+The documentation's general claims point the other way: "deterministic,
+lossless round-trips" (docs/index.md, packages/toon/README.md), "round-trips
+preserve all data and structure" and "`decode(encode(x))` always equals `x`"
+(docs/guide/getting-started.md), "TOON provides lossless round-trips after
+normalization" (docs/reference/api.md) — where the documented normalization
+covers non-JSON host types (`Date`, `BigInt`, `Set`, …), not wire tokens
+entering `decode()`.
 
 Cross-implementation status: both other official implementations emit the
 token faithfully, and round-trip it losslessly between themselves.
@@ -71,27 +78,28 @@ valid per §4 numeric parsing in every case.
 
 ## Additional Context
 
-The lossless machinery already exists in this codebase for the encoder's
-host-value path: `packages/toon/src/encode/normalize.ts` converts an
-out-of-range **BigInt** input to a string (quoted in output) — exactly the
-lossless option §2 describes. The result is an asymmetry: the host value
-`BigInt("9007199254740993")` survives encoding losslessly, while the same
-mathematical value arriving as a wire token through `decode()` is silently
-approximated.
+The lossless machinery exists in this codebase, and is documented — on the
+encode side. `packages/toon/src/encode/normalize.ts` converts an out-of-range
+`BigInt` to a string (quoted in output), and the api.md normalization table
+documents exactly that, using this very value as its example. The result is
+an asymmetry within the library's own documented behavior: the host value
+`BigInt("9007199254740993")` survives encoding losslessly as
+`"9007199254740993"`, while the same mathematical value arriving as a wire
+token through `decode()` is silently approximated to `9007199254740992`.
 
 Scope note: this report deliberately targets the **decode** path. On the
-encode side, precision is typically lost at JS host ingestion
-(`JSON.parse` rounds `2^53+1` before the library sees it), which is §3
-host-normalization territory with its own documentation requirement — but the
-decoder receives the exact token and the loss occurs inside the library, so
-§4 governs directly.
+encode side, precision for plain numbers is typically lost at JS host
+ingestion (`JSON.parse` rounds `2^53+1` before the library sees it), which is
+§3 host-normalization territory — and the BigInt route documented above
+already offers users a lossless way in. The decoder receives the exact token
+and the loss occurs inside the library, so §4 governs directly.
 
-Per §4, any of these would resolve the issue: returning a BigInt
-(higher-precision type), returning a string, or documenting an
-approximate-value policy — with lossless-first RECOMMENDED for a format whose
-stated purpose is data interchange. At minimum, the MUST-document requirement
-is currently unmet, and the existing "lossless" documentation claims are
-contradicted by the behavior.
+Per §4, any of these would resolve the issue: returning a `BigInt`
+(higher-precision type), returning a string (mirroring the documented encoder
+behavior for the same values), or documenting an approximate-value policy —
+with lossless-first RECOMMENDED for a library whose documentation describes
+it as a "drop-in, lossless representation of your existing JSON". At minimum,
+the §4 MUST-document requirement for the decoder is currently unmet.
 
 Surfaced by [toon-diff](https://github.com/antrixy/toon-diff) differential
 testing; seed case 013-precision-loss-2pow53plus1.json. Versions:
