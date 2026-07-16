@@ -92,7 +92,7 @@ const main = async () => {
     console.log(`DIVERGENCES (${mismatches.length}):\n`);
     for (const m of mismatches) {
       console.log(`${m.from} \u2192 ${m.to}   \u2717   ${m.file}`);
-      if (m.error) { console.log(`  error:    ${m.error}\n`); continue; }
+      if (m.error) { console.log(`  error:    ${m.error.trimEnd()}\n`); continue; }
       console.log(`  expected: ${m.expected}`);
       console.log(`  actual:   ${m.actual}\n`);
     }
