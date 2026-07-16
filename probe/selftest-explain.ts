@@ -127,6 +127,7 @@ const lines = renderExplainReport(report);
 ok("summary line reads 7/7", lines[0].includes("7/7"), true);
 ok("summary reports no citation-pending", lines[0].includes("citation-pending"), false);
 ok("no PENDING lines render (all rules citable)", lines.some((l) => l.includes("PENDING")), false);
+ok("round-trip note renders (endpoints named, fault not attributed)", lines.some((l) => l.includes("fault not attributed")), true);
 ok("a cite line renders for 002", lines.some((l) => l.startsWith("  cite: SPEC 3.3")), true);
 ok("no unexplained section for a fully-covered report", lines.some((l) => l.includes("UNEXPLAINED")), false);
 

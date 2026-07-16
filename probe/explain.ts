@@ -56,6 +56,7 @@ export interface RuleExplanation {
   /** e.g. `SPEC 3.3 §4, §5, §9.1, §13.2; introduced [3.1] 2026-05-18` — null for stubs. */
   citation: string | null;
   citationPending: boolean;
+  appliesTo: "encoder" | "decoder" | "round-trip";
   refs: string[];
   verdicts: SideVerdict[]; // constrained sides only
 }
@@ -138,6 +139,7 @@ export function explain(
         title: rule.title,
         citation: citationOf(rule),
         citationPending: !isCitable(rule),
+        appliesTo: rule.appliesTo,
         refs: rule.refs ?? [],
         verdicts,
       };
@@ -192,6 +194,9 @@ export function renderExplainReport(report: ExplainReport): string[] {
       );
       for (const v of r.verdicts) {
         lines.push(`  ${v.role} ${v.side}: ${v.text}`);
+      }
+      if (r.appliesTo === "round-trip" && r.verdicts.length) {
+        lines.push("  note: round-trip rule \u2014 both endpoints named, fault not attributed");
       }
     }
     if (!e.explained) lines.push(`  (no rule linked)`);

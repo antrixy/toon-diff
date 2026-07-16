@@ -42,7 +42,7 @@ ok("013 carries refs", Array.isArray(c013.meta.refs) && c013.meta.refs.length > 
 // Spec-rule references (v0.3 explained-failures wiring).
 const c002 = corpus.cases.find((c) => c.id === "002")!;
 ok("002 references its spec rule", (c002.meta.specRules ?? []).includes("empty-array-canonical-literal"), true);
-ok("013 references its spec rule (stub)", (c013.meta.specRules ?? []).includes("integer-precision-lossless"), true);
+ok("013 references its spec rule", (c013.meta.specRules ?? []).includes("integer-precision-lossless"), true);
 ok("only 002 and 013 carry specRules so far", corpus.cases.filter((c) => c.meta.specRules !== undefined).length, 2);
 
 // Raw-text fidelity: loader output must be the on-disk bytes, trimmed only.
