@@ -67,18 +67,18 @@ export const SPEC_RULES: SpecRule[] = [
       "https://github.com/toon-format/toon-rust/issues/76",
     ],
     notes:
-      "verified against live SPEC.md v3.3 in browser (Jul 2026 session); fetched copies of the spec have been observed stale — reverify in browser before editing sections. Upstream encoder issue toon#322 closed Jul 2026 as resolved-by-spec (AI triage: v3.3 §9.1 blesses [] as SHOULD, decoders MUST accept both — verify §9.1 language in browser); python decoder fix still tracked at toon-python#61",
+      "verified against live SPEC.md v3.3 in browser (Jul 2026 session); fetched copies of the spec have been observed stale — reverify in browser before editing sections. Upstream encoder issue toon#322 closed Jul 2026 as resolved-by-spec; triage claim browser-verified 2026-07-16 via §4 ('the literal token [] ... decodes as an empty array (§9.1)') and CHANGELOG [3.1] ('decoders MUST accept both canonical and legacy forms'); python decoder fix still tracked at toon-python#61",
   },
   {
     id: "integer-precision-lossless",
     title:
-      "integer lexemes outside f64-exact range (e.g. 2^53+1) must round-trip without precision loss",
-    sections: [], // STUB: governing sections not yet verified against live SPEC.md — do not cite
-    introducedIn: null,
-    changelog: null,
+      "round-trip fidelity for numbers is a MUST (§2); out-of-domain numeric handling requires a DOCUMENTED policy — encoder MAY quote losslessly or approximate per §2/§3, decoder MUST document its out-of-range policy per §4 (lossless-first RECOMMENDED)",
+    sections: ["2", "3", "4"],
+    introducedIn: "1.3",
+    changelog: "[1.3] 2025-10-31",
     appliesTo: "round-trip",
     notes:
-      "TODO(verify-in-browser): fill sections from live SPEC.md before this rule may be cited in explanations; divergence evidence lives in seeds/013. NO upstream issue filed yet (browser-verified 2026-07-15 via author-issues search); the earlier toon#322 ref here was a recon error — #322 is the empty-array issue. Candidate for upstream filing once stub promotion supplies spec citations",
+      "browser-verified 2026-07-16 against live SPEC.md v3.3 + CHANGELOG ([1.3] added 'all implementations MUST preserve round-trip fidelity (§2)'; [1.4] added decoder out-of-range handling; [3.3] spelled out the round-trip equality predicate). Empirically the 2^53+1 loss sits in the TS f64 path on BOTH sides: host ingestion rounds before encode (partial §3 defense), and decode() returns an approximate value for a valid wire token with NO documented out-of-range policy — while the TS docs affirmatively claim lossless round-trips, and normalize.ts already quotes out-of-range BigInt losslessly. Rule stays round-trip: the machinery does not attribute per-pair. NO upstream issue filed yet; filing drafted, decoder-side leading",
   },
 ];
 

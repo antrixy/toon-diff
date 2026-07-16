@@ -55,7 +55,7 @@ const report = explain(MATRIX_2026_07_12, corpus);
 ok("7 divergences in", report.total, 7);
 ok("7 explained (both cases carry rules)", report.explained, 7);
 ok("no unexplained", report.unexplained.length, 0);
-ok("5 citation-pending (all 013s, stub rule)", report.citationPending, 5);
+ok("0 citation-pending (013 rule promoted)", report.citationPending, 0);
 
 const eRust = report.explanations[1];
 ok("002 ts->rust kind is error", eRust.kind, "error");
@@ -79,8 +79,8 @@ const eTsTs = report.explanations[2];
 const rTsTs = eTsTs.rules[0];
 ok("013 ts->ts: one side, role both", rTsTs.verdicts.length === 1 && rTsTs.verdicts[0].role === "both", true);
 ok("013 ts->ts: ts violates its claimed 3.3", rTsTs.verdicts[0].verdict, "violates-claimed");
-ok("013 citation is pending", rTsTs.citationPending, true);
-ok("013 citation is null", rTsTs.citation, null);
+ok("013 citation is real (rule promoted)", rTsTs.citationPending, false);
+ok("013 citation cites the [1.3] changelog", (rTsTs.citation ?? "").includes("[1.3] 2025-10-31"), true);
 ok("013 carries no upstream refs (none filed yet; old toon#322 ref was a recon error)", rTsTs.refs.length, 0);
 
 const ePyTs = report.explanations[5];
@@ -125,8 +125,8 @@ ok("python verdict unchanged", post71.explanations[0].rules[0].verdicts[0].verdi
 console.log("Part 4: rendering");
 const lines = renderExplainReport(report);
 ok("summary line reads 7/7", lines[0].includes("7/7"), true);
-ok("summary flags citation-pending count", lines[0].includes("5 citation-pending"), true);
-ok("a PENDING line renders for the stub", lines.some((l) => l.includes("PENDING")), true);
+ok("summary reports no citation-pending", lines[0].includes("citation-pending"), false);
+ok("no PENDING lines render (all rules citable)", lines.some((l) => l.includes("PENDING")), false);
 ok("a cite line renders for 002", lines.some((l) => l.startsWith("  cite: SPEC 3.3")), true);
 ok("no unexplained section for a fully-covered report", lines.some((l) => l.includes("UNEXPLAINED")), false);
 
