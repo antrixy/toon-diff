@@ -1,5 +1,5 @@
 # Upstream filing: TS decoder out-of-range precision loss
-# Filed against github.com/toon-format/toon — issue number TBD after filing
+# Filed as https://github.com/toon-format/toon/issues/329 (2026-07-16) — that thread is canonical; this file is the as-filed draft
 
 TITLE:
 decode() silently approximates out-of-range integer tokens; no documented
