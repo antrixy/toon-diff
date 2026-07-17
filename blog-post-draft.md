@@ -1,5 +1,7 @@
 # I filed a bug. The spec moved. The bug closed as "resolved" — and the finding still mattered.
 
+*Published at https://dev.to/maverickyadav/differential-testing-found-bugs-in-all-three-official-toon-implementations-and-outlived-a-moving-1mp8 (2026-07-16) under the title "Differential testing found bugs in all three official TOON implementations — and outlived a moving spec" — that page is canonical.*
+
 In late June I filed [toon#322](https://github.com/toon-format/toon/issues/322)
 against the reference TypeScript implementation of
 [TOON](https://github.com/toon-format/spec), a serialization format that
