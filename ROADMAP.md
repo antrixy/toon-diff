@@ -51,20 +51,31 @@ a pairwise round-trip fuzzer has nothing left to say about it — every pair
 agrees. The only thing that can still say something true is an oracle built
 from the specification's data model rather than from anyone's encoder.
 
-> "Evidence beats clause readings, but independent evidence beats consensus."
-> — Viktor, on the v0.3 write-up. The framing, and this thesis, are his.
+> "evidence beats clause readings, but independent evidence beats consensus"
+> — Viktor, on the v0.3 write-up. The blind spot above is his, named in a
+> comment that also reported hitting it in practice: two parsers sharing a
+> vendored tokenizer, agreeing with each other and with nothing else. The
+> property-based layer below is his proposal. The `spec/` bucket is this
+> project's answer built on top of it.
 
-**The work.** Both pieces compose with the pairwise design rather than
-replacing it — the goal is that at least one side of every comparison is
-implementation-free.
+**The work.** Two pieces, both composing with the pairwise design rather than
+replacing it. They differ in kind, and that difference is the point: the first
+makes the *value* implementation-free, the second makes the *wire*
+implementation-free — no encoder anywhere in the loop.
 
-- **Fill the `spec/` bucket.** Hand-built wire text derived directly from
-  SPEC.md, checked decoder-side with no encoder in the loop. The bucket has
-  been wired since v0.3 and is still empty; the loader, sidecars, and rule
-  linkage already work. *(Trust.)*
 - **Property-based layer.** Generate values straight from the spec's data
-  model, never through an implementation's encoder, so the generated side of a
-  pair carries no inherited assumption. *(Trust.)*
+  model, never through an implementation's encoder, so at least one side of
+  every pair carries no inherited assumption. Cheapest of the two: it emits
+  JSON values, which the existing corpus, matrix, and oracle already consume —
+  the same shape `gen/` produces today. *(Trust.)*
+- **Fill the `spec/` bucket.** Hand-built wire text derived directly from
+  SPEC.md and checked decoder-side, so the input never passed through any
+  encoder at all. Stronger evidence, and more work than "the bucket is wired
+  and empty" suggests: today's case format is JSON-in/round-trip-out, so a
+  wire-text case needs a second case shape, a per-implementation run path
+  (N checks, not N×N), and a way to render a one-sided result. Modelling the
+  spec itself as a pseudo-encoder makes that last part nearly free — the
+  existing per-side verdict logic then applies unchanged. *(Trust.)*
 
 **Shipped in v0.4 so far.** Per-side numeric-domain verdicts
 (`probe/numeric-domain.ts`): §2's round-trip MUST is scoped to *in-domain*
@@ -73,8 +84,8 @@ attributed to the f64 side alone instead of indicting the two endpoints that
 hold the value exactly. Encoder (§3+§2) and decoder (§4) documentation
 obligations are judged independently — which is what lets the report say
 "decoder satisfied, encoder still violating" after a decoder-only docs fix.
-*(Understanding — and a prerequisite for the above, since spec-derived cases
-have only one implementation side to judge.)*
+*(Understanding — and a prerequisite for the `spec/` bucket, since a
+spec-derived case has only one implementation side to judge.)*
 
 **Known fault line, not yet a case.** The u64 boundary separates rust
 (`i64/u64` + f64 fallback) from python (arbitrary precision) — a real
