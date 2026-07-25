@@ -17,53 +17,79 @@ skeptical of.
 `toon-diff` is a conformance suite, not a testing framework. The scope is
 deliberately narrow. Narrowness is the moat.
 
-## Now — v0.2 (make it a real fuzzer)
+## Shipped
 
-- **Probe generator. [DONE — gen/]** Mutates the seed corpus along documented
-  fault lines via 10 structure-aware operators, prioritizing the flat/wide/
-  large-table shapes the ecosystem under-tests (toon#310). Numbers are captured
-  at their exact lexeme, so nothing is corrupted on ingestion — proven against the
-  oracle in gen/selftest-*.ts. Every case is deterministic and carries provenance
-  `(seed, rngSeed, pipeline)`, replayable byte-for-byte via gen/replay-case.ts.
-  Turns "inputs a person hand-wrote" into "inputs nobody wrote."
-  *(Trust — wider input space, same proven judge.)*
-- **Failure shrinking. [DONE — gen/shrink*.ts]** Reduces any failing case to a
-  1-minimal reproducer by structure-aware delta reduction (hoist / null / array
-  ddmin / delete / simplify), driven by a FAILURE SIGNATURE — `(from, to, kind,
-  fingerprint)` — so reduction can't slip from one bug to another when a case
-  carries several. Proven against synthetic and mock-adapter predicates
-  (gen/selftest-shrink.ts), including the no-slippage guarantee. Collapses a
-  bloated finding to e.g. `{"unsafe":9007199254740993}` or `[[[]]]`.
-  *(Understanding.)*
-- **Rust adapter (`serde_toon`).** A third number model (`i64/u64/f64`) turns
-  the matrix into 3×3 and adds a whole row/column of handoffs where divergences
-  hide. *(Adoption + Trust.)*
-- **Tagline, stated in the README:**
-  *Independent implementations. Independent oracle. Deterministic verdict.*
+**v0.2 — make it a real fuzzer.** Probe generator (`gen/`): 10 structure-aware
+operators mutating the seed corpus along documented fault lines, every case
+deterministic and replayable byte-for-byte from `(seed, rngSeed, pipeline)`.
+Failure shrinking (`gen/shrink*.ts`): 1-minimal reproducers by structure-aware
+delta reduction, driven by a failure signature so reduction can't slip from one
+bug to another. Rust adapter: a third number model (`i64/u64/f64`) turning the
+matrix into 3×3.
 
-## Next — v0.3 (make failures teach)
+**v0.3 — make failures teach.** Corpus organized by provenance, each case
+carrying where it came from and what invariant it protects. A spec-rule registry
+where every rule is citable and stubs are fenced. Explained failures mapping
+each divergence to a rule, its clauses, and a per-side verdict. The N×N grid
+report, so the *shape* of a failure reads at a glance. See `RETROSPECTIVE.md`
+for what the v0.3 arc actually taught.
 
-- **Corpus organized by provenance.** Group cases by where they came from —
-  `probe/cases/{spec,regressions,generated,community}/` — and have each case
-  carry a one-line note answering: where did it come from, and what invariant
-  does it protect? A spec example, a preserved past bug, and a fuzz-generated
-  case are different things, and a contributor should be able to tell which they
-  are adding. Over time this makes the corpus a historical record of the
-  specification, and gives every fixed upstream bug a regression that can never
-  silently return. *(Adoption + Understanding.)*
-- **Explained failures.** Report *what* diverged and *which spec section* it
-  touches — e.g. "numeric precision, §2, encoder-side, IEEE-754 truncation."
-  State the observation and the clause; do **not** prescribe a fix (see below).
-  *(Understanding.)*
-- **Full N×N matrix report.** Render the per-pair grid so the *shape* of the
-  failures reads at a glance (diagonal fail = capability limit; single
-  off-diagonal = handoff bug). *(Understanding.)*
+## Now — v0.4 (independent evidence)
+
+**The blind spot.** Every wire in the matrix comes from some implementation's
+encoder. If all implementations share the same wrong assumption — the usual way
+being that ports copy the reference implementation's logic — then every
+round-trip agrees, and toon-diff sees nothing. The tool's evidence is only as
+independent as the implementations happen to be. 002 surfaced *because* the
+ports did not copy TS; the cases where they do copy are exactly the ones this
+design cannot reach.
+
+That is not hypothetical. toon#329 (decoder silently approximates out-of-range
+integers) is on track to be resolved by *documenting* the approximation. The
+spec permits that. But once a loss is blessed by documentation on every side,
+a pairwise round-trip fuzzer has nothing left to say about it — every pair
+agrees. The only thing that can still say something true is an oracle built
+from the specification's data model rather than from anyone's encoder.
+
+> "Evidence beats clause readings, but independent evidence beats consensus."
+> — Viktor, on the v0.3 write-up. The framing, and this thesis, are his.
+
+**The work.** Both pieces compose with the pairwise design rather than
+replacing it — the goal is that at least one side of every comparison is
+implementation-free.
+
+- **Fill the `spec/` bucket.** Hand-built wire text derived directly from
+  SPEC.md, checked decoder-side with no encoder in the loop. The bucket has
+  been wired since v0.3 and is still empty; the loader, sidecars, and rule
+  linkage already work. *(Trust.)*
+- **Property-based layer.** Generate values straight from the spec's data
+  model, never through an implementation's encoder, so the generated side of a
+  pair carries no inherited assumption. *(Trust.)*
+
+**Shipped in v0.4 so far.** Per-side numeric-domain verdicts
+(`probe/numeric-domain.ts`): §2's round-trip MUST is scoped to *in-domain*
+values, and domain membership is per-implementation, so fault on 013 is now
+attributed to the f64 side alone instead of indicting the two endpoints that
+hold the value exactly. Encoder (§3+§2) and decoder (§4) documentation
+obligations are judged independently — which is what lets the report say
+"decoder satisfied, encoder still violating" after a decoder-only docs fix.
+*(Understanding — and a prerequisite for the above, since spec-derived cases
+have only one implementation side to judge.)*
+
+**Known fault line, not yet a case.** The u64 boundary separates rust
+(`i64/u64` + f64 fallback) from python (arbitrary precision) — a real
+divergence above 013's, and a natural first `spec/` resident.
 
 ## Later — conditional on actual use, not built on spec
 
 Pull these forward only when someone using the tool asks for them. Building them
 before there's demand is how a focused tool turns into an unfinished platform.
 
+- Version axis: test multiple versions of each implementation, turning the
+  matrix into when-did-this-break archaeology. Wants adapter version pinning and
+  environment management — the expensive part.
+- Fourth implementation (4×4 = 16 pairs). Survey community implementations by
+  actual usage first.
 - Spec-coverage tracking (which normative clauses have a probe exercising them).
 - Historical conformance trend per implementation.
 - Stable, documented adapter API (freeze it once a third party has written one).
