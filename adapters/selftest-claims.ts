@@ -11,11 +11,22 @@
  *     (rust's pending README bump must be updated HERE, deliberately, with the
  *     merge commit — this test will fail until that edit is made consciously)
  *
+ * It also pins the NUMERIC axis, which SPEC.md splits by domain membership:
+ *   - domains: the exact-value model each adapter ingests (f64 / i64u64f64 /
+ *     bignum), evidenced in-repo, plus the NUMERIC_DOMAINS derivation
+ *   - policies: encoder (§3+§2) and decoder (§4) documented out-of-range
+ *     behavior recorded SEPARATELY, because they are independent obligations
+ *   - the #329 promotion tripwire: ts's decoder policy is null while the docs
+ *     PR is unmerged, and its notes must say so. On merge, decoderPolicy moves
+ *     to "approximate" and this check MUST be updated in the same commit
+ *   - the ts self-contradiction pin: null policy WHILE claiming losslessness,
+ *     which is the finding — distinct from rust/python's mere silence
+ *
  * Pure: no TOON implementations needed. Run:
  *     node --experimental-strip-types adapters/selftest-claims.ts
  */
 
-import { IMPL_CLAIMS, SPEC_VERSION_CLAIMS } from "./contract.ts";
+import { IMPL_CLAIMS, SPEC_VERSION_CLAIMS, NUMERIC_DOMAINS } from "./contract.ts";
 import { parseSpecVersion, SPEC_CURRENT, compareSpecVersions } from "../probe/spec-rules.ts";
 
 let pass = 0;
@@ -29,6 +40,8 @@ function ok(label: string, got: unknown, want: unknown) {
 
 const ids = Object.keys(IMPL_CLAIMS) as (keyof typeof IMPL_CLAIMS)[];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DOMAIN_TAGS: readonly unknown[] = ["f64", "i64u64f64", "bignum"];
+const POLICIES: readonly unknown[] = ["approximate", "quoted-lossless", "reject", null];
 
 console.log("Part 1: shape");
 ok("three implementations", ids.length, 3);
@@ -41,11 +54,19 @@ for (const id of ids) {
   if (c.version !== null) {
     ok(`${id}: claim does not exceed current spec ${SPEC_CURRENT}`, compareSpecVersions(c.version, SPEC_CURRENT) <= 0, true);
   }
+  const n = c.numeric;
+  ok(`${id}: numeric domain is a known tag`, DOMAIN_TAGS.includes(n.domain), true);
+  ok(`${id}: domain evidence is non-empty`, n.domainEvidence.trim().length > 0, true);
+  ok(`${id}: decoder policy is a known value or null`, POLICIES.includes(n.decoderPolicy), true);
+  ok(`${id}: encoder policy is a known value or null`, POLICIES.includes(n.encoderPolicy), true);
+  ok(`${id}: policy evidence is non-empty (null is a FINDING, so it needs a source)`, n.policyEvidence.trim().length > 0, true);
+  ok(`${id}: numeric verified is YYYY-MM-DD`, DATE_RE.test(n.verified), true);
 }
 
 console.log("Part 2: derivation (adapters can never drift from claims)");
 for (const id of ids) {
   ok(`SPEC_VERSION_CLAIMS.${id} matches IMPL_CLAIMS.${id}.version`, SPEC_VERSION_CLAIMS[id], IMPL_CLAIMS[id].version);
+  ok(`NUMERIC_DOMAINS.${id} matches IMPL_CLAIMS.${id}.numeric.domain`, NUMERIC_DOMAINS[id], IMPL_CLAIMS[id].numeric.domain);
 }
 
 console.log("Part 3: content pins");
@@ -59,9 +80,50 @@ ok("rust notes record the 3.2 correction", (IMPL_CLAIMS.rust.notes ?? "").includ
 // updated in the same commit — that is the point.
 ok("rust notes carry the pending #71 bump", (IMPL_CLAIMS.rust.notes ?? "").includes("#71"), true);
 
+console.log("Part 4: numeric domains (three DISTINCT models, nested for integers)");
+ok("ts domain is f64", IMPL_CLAIMS.ts.numeric.domain, "f64");
+ok("rust domain is i64u64f64 (arbitrary_precision OFF — NOT i128)", IMPL_CLAIMS.rust.numeric.domain, "i64u64f64");
+ok("python domain is bignum", IMPL_CLAIMS.python.numeric.domain, "bignum");
+// The domains must be distinct, or the matrix has no numeric fault line to
+// find: 2^53+1 separates ts from the other two, and the u64 boundary
+// separates rust from python.
+ok(
+  "the three domains are pairwise distinct",
+  new Set(ids.map((id) => IMPL_CLAIMS[id].numeric.domain)).size,
+  3,
+);
+// Domains are evidenced IN-REPO (adapter ingestion), not from upstream
+// marketing — each must name the file that proves it.
+ok("ts domain evidence names its ingestion path", IMPL_CLAIMS.ts.numeric.domainEvidence.includes("JSON.parse"), true);
+ok("rust domain evidence names the serde_json feature choice", IMPL_CLAIMS.rust.numeric.domainEvidence.includes("arbitrary_precision"), true);
+ok("python domain evidence names its ingestion path", IMPL_CLAIMS.python.numeric.domainEvidence.includes("json.loads"), true);
+
+console.log("Part 5: out-of-range policies (encoder §3+§2 and decoder §4 are INDEPENDENT)");
+// ts is the self-contradiction: no documented policy on either side, while
+// the reference docs affirmatively promise lossless round-trips. That pairing
+// is the finding — silence alone (rust, python) is weaker.
+ok("ts documents no decoder policy (yet)", IMPL_CLAIMS.ts.numeric.decoderPolicy, null);
+ok("ts documents no encoder policy", IMPL_CLAIMS.ts.numeric.encoderPolicy, null);
+ok("ts affirmatively claims losslessness (the contradiction)", IMPL_CLAIMS.ts.numeric.claimsLossless, true);
+ok("rust is silent, not self-contradicting", IMPL_CLAIMS.rust.numeric.claimsLossless, false);
+ok("python is silent, not self-contradicting", IMPL_CLAIMS.python.numeric.claimsLossless, false);
+// Promotion tripwire, same shape as rust/#71: while ts's decoder policy is
+// null, its notes must carry the pending #329 docs PR. When #329 merges and
+// decoderPolicy becomes "approximate", this check MUST be updated in the same
+// commit — that is the point.
+ok("ts notes carry the pending #329 docs PR", (IMPL_CLAIMS.ts.numeric.notes ?? "").includes("#329"), true);
+// #329 is DECODER-ONLY: the encoder gap must be recorded as surviving it, or
+// a merge would silently look like a full fix.
+ok("ts notes record that #329 leaves the encoder gap open", (IMPL_CLAIMS.ts.numeric.notes ?? "").includes("DECODER-ONLY"), true);
+// The rust u64 boundary is OUR harness model, not upstream policy — the
+// caveat must travel with the claim so it is never filed as a bug.
+ok("rust notes flag the boundary as an adapter artifact", (IMPL_CLAIMS.rust.numeric.notes ?? "").includes("ADAPTER"), true);
+// python's null means "no boundary exists", not "undocumented".
+ok("python notes distinguish not-applicable from a docs gap", (IMPL_CLAIMS.python.numeric.notes ?? "").includes("NOT-APPLICABLE"), true);
+
 console.log();
 if (fail === 0) {
-  console.log(`IMPL CLAIMS PROVEN: ${pass} checks pass. Claims carry evidence and dates; the adapter-facing shape derives from the single source; the rust correction is pinned.`);
+  console.log(`IMPL CLAIMS PROVEN: ${pass} checks pass. Claims carry evidence and dates; the adapter-facing shapes derive from the single source; the rust correction is pinned; the three numeric domains are distinct and in-repo evidenced; encoder and decoder policies are recorded independently, with the #71 and #329 promotion tripwires armed.`);
 } else {
   console.log(`IMPL CLAIMS FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);
