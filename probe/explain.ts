@@ -6,18 +6,27 @@
  *   WHICH rule      — via the case sidecar's specRules -> the registry
  *   WHICH clauses   — SPEC sections + CHANGELOG citation, but ONLY for
  *                     citable rules; stubs render as citation-pending
- *   WHOSE claim     — a spec-version verdict PER CONSTRAINED SIDE:
- *                     "decoder" rules never indict the encoder, "round-trip"
- *                     rules indict both endpoints without attributing which.
+ *   WHOSE claim     — a verdict PER CONSTRAINED SIDE. "decoder" rules never
+ *                     indict the encoder. Round-trip rules name both
+ *                     endpoints; whether fault is ATTRIBUTED depends on the
+ *                     rule's verdictKind.
  *
- * The verdict logic is the 002 lesson (see spec-rules.ts): an impl claiming a
- * version OLDER than the rule is BEHIND it, not violating it; claiming a
- * version that includes the rule violates its own claim; claiming nothing is
- * measured against the current spec.
+ * Two verdict kinds:
+ *   "version"        — the 002 lesson (see spec-rules.ts): an impl claiming a
+ *                      version OLDER than the rule is BEHIND it, not violating
+ *                      it; claiming a version that includes the rule violates
+ *                      its own claim; claiming nothing is measured against the
+ *                      current spec.
+ *   "numeric-domain" — the 013 lesson (see numeric-domain.ts): §2's round-trip
+ *                      MUST binds only IN-DOMAIN, so each side is judged
+ *                      against its own numeric domain and documented policy.
+ *                      Fault is attributed, and a provably faithful endpoint
+ *                      renders conformant instead of "violates".
  *
  * Pure and side-effect free. Claims default to the adapters' single source
- * (SPEC_VERSION_CLAIMS) but are a parameter, so a post-#71 world is testable
- * today and the harness never hardcodes a second copy.
+ * (SPEC_VERSION_CLAIMS) and numeric facts to IMPL_CLAIMS, but both are
+ * parameters, so post-#71 and post-#329 worlds are testable today and the
+ * harness never hardcodes a second copy.
  */
 
 import type { Corpus } from "./corpus.ts";
@@ -31,6 +40,15 @@ import {
   type SpecVerdict,
 } from "./spec-rules.ts";
 import { SPEC_VERSION_CLAIMS } from "../adapters/contract.ts";
+import {
+  NUMERIC_FACTS,
+  encoderVerdict,
+  decoderVerdict,
+  bothVerdict,
+  governingProbe,
+  type NumericFacts,
+  type NumericVerdict,
+} from "./numeric-domain.ts";
 
 /** Structurally identical to cli-v2's Mismatch. */
 export interface DivergenceRecord {
@@ -45,9 +63,13 @@ export interface DivergenceRecord {
 export interface SideVerdict {
   side: string; // adapter name
   role: "encoder" | "decoder" | "both"; // role in THIS pair
+  /** Which verdict logic produced this — see SpecRule.verdictKind. */
+  kind: "version" | "numeric-domain";
   claimedVersion: string | null;
-  verdict: SpecVerdict;
+  verdict: SpecVerdict | NumericVerdict;
   text: string;
+  /** Clause this side is judged under (numeric-domain rules only). */
+  clause?: string;
 }
 
 export interface RuleExplanation {
@@ -57,6 +79,13 @@ export interface RuleExplanation {
   citation: string | null;
   citationPending: boolean;
   appliesTo: "encoder" | "decoder" | "round-trip";
+  verdictKind: "version" | "numeric-domain";
+  /**
+   * For numeric-domain rules: the case value the verdicts are judged on, or
+   * null when the case holds no value outside either side's domain — i.e. the
+   * numeric model does NOT explain this divergence and says so.
+   */
+  governingProbe: string | null;
   refs: string[];
   verdicts: SideVerdict[]; // constrained sides only
 }
@@ -113,6 +142,7 @@ export function explain(
   records: DivergenceRecord[],
   corpus: Corpus,
   claims: Claims = SPEC_VERSION_CLAIMS,
+  facts: NumericFacts = NUMERIC_FACTS,
 ): ExplainReport {
   const rules = specRulesById(); // validated, all-or-nothing
   const byKey = new Map(corpus.cases.map((c) => [c.key, c]));
@@ -129,17 +159,69 @@ export function explain(
     const ruleExplanations: RuleExplanation[] = (c.meta.specRules ?? []).map((rid) => {
       const rule = rules.get(rid);
       if (!rule) throw new Error(`explain: case ${c.key} references unknown rule "${rid}" — harness bug`);
-      const verdicts: SideVerdict[] = constrainedSides(rule, r.from, r.to).map(({ side, role }) => {
-        const claimed = claims[side];
-        const v = specVerdict(claimed, rule);
-        return { side, role, claimedVersion: claimed, verdict: v, text: verdictText(v, claimed) };
-      });
+      const kind = rule.verdictKind ?? "version";
+      const sides = constrainedSides(rule, r.from, r.to);
+
+      let verdicts: SideVerdict[];
+      let probe: string | null = null;
+
+      if (kind === "numeric-domain") {
+        for (const side of [r.from, r.to]) {
+          if (!(side in facts)) {
+            throw new Error(
+              `explain: numeric-domain rule "${rid}" but no numeric facts for adapter "${side}" — harness bug`,
+            );
+          }
+        }
+        const e = facts[r.from];
+        const d = facts[r.to];
+        probe = governingProbe(c.text, e, d);
+        verdicts = sides.map(({ side, role }) => {
+          const claimed = claims[side];
+          if (probe === null) {
+            // No value in this case lies outside either domain, so the model
+            // has nothing to attribute. Say so rather than render conformance.
+            return {
+              side,
+              role,
+              kind,
+              claimedVersion: claimed,
+              verdict: "conformant" as NumericVerdict,
+              text: "no out-of-domain value in this case — numeric-domain model does not explain this divergence",
+            };
+          }
+          const res =
+            role === "decoder"
+              ? decoderVerdict(probe, e, d)
+              : role === "both"
+                ? bothVerdict(probe, e)
+                : encoderVerdict(probe, e);
+          return {
+            side,
+            role,
+            kind,
+            claimedVersion: claimed,
+            verdict: res.verdict,
+            text: res.text,
+            clause: res.clause,
+          };
+        });
+      } else {
+        verdicts = sides.map(({ side, role }) => {
+          const claimed = claims[side];
+          const v = specVerdict(claimed, rule);
+          return { side, role, kind, claimedVersion: claimed, verdict: v, text: verdictText(v, claimed) };
+        });
+      }
+
       return {
         ruleId: rule.id,
         title: rule.title,
         citation: citationOf(rule),
         citationPending: !isCitable(rule),
         appliesTo: rule.appliesTo,
+        verdictKind: kind,
+        governingProbe: probe,
         refs: rule.refs ?? [],
         verdicts,
       };
@@ -193,9 +275,24 @@ export function renderExplainReport(report: ExplainReport): string[] {
           : `  cite: PENDING — sections not yet browser-verified (refs: ${r.refs.join(", ") || "none"})`,
       );
       for (const v of r.verdicts) {
-        lines.push(`  ${v.role} ${v.side}: ${v.text}`);
+        lines.push(
+          `  ${v.role} ${v.side}: ${v.text}` +
+            (v.clause !== undefined ? `  [${v.clause}]` : ""),
+        );
       }
-      if (r.appliesTo === "round-trip" && r.verdicts.length) {
+      if (r.verdictKind === "numeric-domain" && r.governingProbe === null) {
+        lines.push(
+          "  note: numeric-domain rule linked, but this case holds no out-of-domain value \u2014 the model does not explain this divergence",
+        );
+      }
+      // The unattributed-fault note applies only to rules whose verdicts
+      // genuinely cannot name a faulting side. Numeric-domain rules attribute
+      // per side, so it would now be false.
+      if (
+        r.appliesTo === "round-trip" &&
+        r.verdictKind !== "numeric-domain" &&
+        r.verdicts.length
+      ) {
         lines.push("  note: round-trip rule \u2014 both endpoints named, fault not attributed");
       }
     }

@@ -61,6 +61,11 @@ ok("013 rule is citable (promoted 2026-07-16)", isCitable(ip), true);
 ok("013 rule refs its upstream filing toon#329", (ip.refs ?? []).some((r) => r.includes("issues/329")), true);
 ok("013 rule cites three sections (2, 3, 4)", (ip.sections ?? []).length, 3);
 ok("013 rule constrains the round trip", ip.appliesTo, "round-trip");
+// v0.4: version logic is degenerate for this rule (it predates every claimed
+// version, so it would indict provably faithful sides), so verdicts come from
+// the numeric-domain path instead.
+ok("013 rule is judged by numeric domain, not version", ip.verdictKind, "numeric-domain");
+ok("002 rule keeps the default version verdicts", ea.verdictKind ?? "version", "version");
 
 // The 002 episode as a truth table. Verdicts are CONDITIONAL on an observed
 // divergence — explain-layer code only asks about the failing side.
@@ -135,6 +140,17 @@ expectProblem("changelog without introducedIn", "cite both or neither", [
 ]);
 expectProblem("invalid appliesTo", `must be "encoder", "decoder", or "round-trip"`, [
   good({ appliesTo: "parser" as SpecRule["appliesTo"] }),
+]);
+expectProblem("invalid verdictKind", `must be "version" or "numeric-domain"`, [
+  good({ verdictKind: "vibes" as SpecRule["verdictKind"] }),
+]);
+// A numeric-domain rule renders per-side citations under §2 (encoder) and §4
+// (decoder), so a registry that omits either cannot cite its own verdicts.
+expectProblem("numeric-domain rule missing §2", "must cite \u00a72", [
+  good({ verdictKind: "numeric-domain", sections: ["4"] }),
+]);
+expectProblem("numeric-domain rule missing §4", "must cite \u00a74", [
+  good({ verdictKind: "numeric-domain", sections: ["2"] }),
 ]);
 
 // One bad rule poisons an otherwise-good registry.

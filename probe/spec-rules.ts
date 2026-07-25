@@ -45,6 +45,18 @@ export interface SpecRule {
    * and "round-trip" rules indict both endpoints without attributing which.
    */
   appliesTo: "encoder" | "decoder" | "round-trip";
+  /**
+   * How verdicts for this rule are computed.
+   *   "version"        — the 002 lesson: judge each side's CLAIMED spec
+   *                      version against when the rule entered the spec.
+   *   "numeric-domain" — judge each side against its own numeric domain and
+   *                      documented policy (see probe/numeric-domain.ts).
+   *                      Version logic is degenerate for such rules: the
+   *                      round-trip MUST predates every claimed version, so
+   *                      it would indict every side including provably
+   *                      faithful ones. Defaults to "version".
+   */
+  verdictKind?: "version" | "numeric-domain";
   /** Optional: upstream issues, spec URLs, evidence. */
   refs?: string[];
   /** Optional: caveats, TODOs, verification notes. */
@@ -77,12 +89,13 @@ export const SPEC_RULES: SpecRule[] = [
     introducedIn: "1.3",
     changelog: "[1.3] 2025-10-31",
     appliesTo: "round-trip",
+    verdictKind: "numeric-domain",
     refs: [
       "https://github.com/toon-format/spec/blob/main/SPEC.md",
       "https://github.com/toon-format/toon/issues/329",
     ],
     notes:
-      "browser-verified 2026-07-16 against live SPEC.md v3.3 + CHANGELOG ([1.3] added 'all implementations MUST preserve round-trip fidelity (§2)'; [1.4] added decoder out-of-range handling; [3.3] spelled out the round-trip equality predicate). Empirically the 2^53+1 loss sits in the TS f64 path on BOTH sides: host ingestion rounds before encode (partial §3 defense), and decode() returns an approximate value for a valid wire token with NO documented out-of-range policy — while the TS docs affirmatively claim lossless round-trips, and normalize.ts already quotes out-of-range BigInt losslessly. Rule stays round-trip: the machinery does not attribute per-pair. Filed upstream as toon#329 (2026-07-16), decoder-side leading",
+      "browser-verified 2026-07-16 against live SPEC.md v3.3 + CHANGELOG ([1.3] added 'all implementations MUST preserve round-trip fidelity (§2)'; [1.4] added decoder out-of-range handling; [3.3] spelled out the round-trip equality predicate). Empirically the 2^53+1 loss sits in the TS f64 path on BOTH sides: host ingestion rounds before encode (§3 host-type mapping), and decode() returns an approximate value for a valid wire token with NO documented out-of-range policy — while the TS docs affirmatively claim lossless round-trips, and normalize.ts already quotes out-of-range BigInt losslessly. Filed upstream as toon#329 (2026-07-16), decoder-side leading. v0.4: verdictKind numeric-domain — §2's round-trip MUST is scoped to IN-DOMAIN values (browser-verified §2/§3/§4 2026-07-25), so fault IS attributed per side and the v0.3 'not attributed' note-line no longer renders for this rule; rust and python are conformant on 013 rather than co-defendants",
   },
 ];
 
@@ -178,6 +191,23 @@ export function validateSpecRules(rules: SpecRule[] = SPEC_RULES): string[] {
       problems.push(
         `${where}: appliesTo must be "encoder", "decoder", or "round-trip" (got ${JSON.stringify(r.appliesTo)})`,
       );
+    }
+    if (r.verdictKind !== undefined && !["version", "numeric-domain"].includes(r.verdictKind)) {
+      problems.push(
+        `${where}: verdictKind must be "version" or "numeric-domain" (got ${JSON.stringify(r.verdictKind)})`,
+      );
+    }
+    if (r.verdictKind === "numeric-domain") {
+      // The per-side verdicts cite §2 (encoder round-trip / out-of-domain) and
+      // §4 (decoder out-of-range). A numeric-domain rule that does not name
+      // both cannot render its own citations.
+      for (const s of ["2", "4"]) {
+        if (!r.sections.includes(s)) {
+          problems.push(
+            `${where}: numeric-domain rules must cite \u00a7${s} (its per-side verdicts are judged under it)`,
+          );
+        }
+      }
     }
   });
 

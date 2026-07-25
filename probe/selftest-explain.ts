@@ -19,6 +19,7 @@
 
 import { loadCorpus } from "./corpus.ts";
 import { explain, renderExplainReport, type DivergenceRecord } from "./explain.ts";
+import { NUMERIC_FACTS } from "./numeric-domain.ts";
 
 let pass = 0;
 let fail = 0;
@@ -78,7 +79,10 @@ ok("002 python: the encoder (ts) is never indicted", rPy.verdicts.every((v) => v
 const eTsTs = report.explanations[2];
 const rTsTs = eTsTs.rules[0];
 ok("013 ts->ts: one side, role both", rTsTs.verdicts.length === 1 && rTsTs.verdicts[0].role === "both", true);
-ok("013 ts->ts: ts violates its claimed 3.3", rTsTs.verdicts[0].verdict, "violates-claimed");
+ok("013 ts->ts: judged by the numeric-domain kind", rTsTs.verdictKind, "numeric-domain");
+ok("013 ts->ts: ts violates (self-pair, encoder obligation first)", rTsTs.verdicts[0].verdict, "violates");
+ok("013 ts->ts: cited under §3 + §2 (host-type mapping)", rTsTs.verdicts[0].clause, "§3 + §2");
+ok("013 governing probe is 2^53+1, read from the case text", rTsTs.governingProbe, "9007199254740993");
 ok("013 citation is real (rule promoted)", rTsTs.citationPending, false);
 ok("013 citation cites the [1.3] changelog", (rTsTs.citation ?? "").includes("[1.3] 2025-10-31"), true);
 ok("013 refs carry toon#329 (filed 2026-07-16)", rTsTs.refs.some((r) => r.includes("issues/329")), true);
@@ -86,8 +90,17 @@ ok("013 refs carry toon#329 (filed 2026-07-16)", rTsTs.refs.some((r) => r.includ
 const ePyTs = report.explanations[5];
 const rPyTs = ePyTs.rules[0];
 ok("013 python->ts: both endpoints constrained", rPyTs.verdicts.length, 2);
-ok("013 python->ts: python violates-current", rPyTs.verdicts.find((v) => v.side === "python")!.verdict, "violates-current");
-ok("013 python->ts: ts violates-claimed", rPyTs.verdicts.find((v) => v.side === "ts")!.verdict, "violates-claimed");
+// THE v0.4 POINT: python holds 2^53+1 exactly, so it is CONFORMANT rather
+// than a co-defendant. Under the old version-only logic it read
+// "violates-current" purely because the rule predates every claimed version.
+ok("013 python->ts: python is conformant (bignum holds the value)", rPyTs.verdicts.find((v) => v.side === "python")!.verdict, "conformant");
+ok("013 python->ts: ts violates as DECODER", rPyTs.verdicts.find((v) => v.side === "ts")!.verdict, "violates");
+ok("013 python->ts: ts is cited under §4", rPyTs.verdicts.find((v) => v.side === "ts")!.clause, "§4");
+// And the mirror: with TS encoding, the fault moves to the encoder side and
+// rust becomes the faithful relay.
+const rTsRust = report.explanations[4].rules[0];
+ok("013 ts->rust: ts violates as ENCODER (§3 + §2)", rTsRust.verdicts.find((v) => v.side === "ts")!.clause, "§3 + §2");
+ok("013 ts->rust: rust is conformant (faithful relay)", rTsRust.verdicts.find((v) => v.side === "rust")!.verdict, "conformant");
 
 console.log("Part 2: coverage gaps and harness bugs");
 const unexplainedReport = explain(
@@ -122,12 +135,30 @@ const post71Rust = post71.explanations[1].rules[0].verdicts[0];
 ok("rust at 3.3 flips to violates-claimed", post71Rust.verdict, "violates-claimed");
 ok("python verdict unchanged", post71.explanations[0].rules[0].verdicts[0].verdict, "violates-current");
 
-console.log("Part 4: rendering");
+console.log("Part 4: the post-#329 world (numeric facts as a parameter)");
+// #329 documents the DECODER's out-of-range policy. On merge, ts-as-decoder
+// becomes documented-policy — but ts-as-encoder must NOT move, because the
+// §3 host-type mapping is a separate obligation the docs PR does not address.
+const post329 = explain(MATRIX_2026_07_12, corpus, undefined, {
+  ...NUMERIC_FACTS,
+  ts: { ...NUMERIC_FACTS.ts, decoderPolicy: "approximate" },
+});
+const p329PyTs = post329.explanations[5].rules[0];
+ok("post-#329: ts-as-decoder satisfies its documented §4 policy", p329PyTs.verdicts.find((v) => v.side === "ts")!.verdict, "documented-policy");
+ok("post-#329: python still conformant", p329PyTs.verdicts.find((v) => v.side === "python")!.verdict, "conformant");
+const p329TsRust = post329.explanations[4].rules[0];
+ok("post-#329: ts-as-ENCODER still violates (§3 gap survives)", p329TsRust.verdicts.find((v) => v.side === "ts")!.verdict, "violates");
+
+console.log("Part 5: rendering");
 const lines = renderExplainReport(report);
 ok("summary line reads 7/7", lines[0].includes("7/7"), true);
 ok("summary reports no citation-pending", lines[0].includes("citation-pending"), false);
 ok("no PENDING lines render (all rules citable)", lines.some((l) => l.includes("PENDING")), false);
-ok("round-trip note renders (endpoints named, fault not attributed)", lines.some((l) => l.includes("fault not attributed")), true);
+// The v0.3 note-line was an admission that fault could not be attributed.
+// Numeric-domain rules attribute per side, so it must no longer render.
+ok("unattributed-fault note is GONE (013 now attributes)", lines.some((l) => l.includes("fault not attributed")), false);
+ok("per-side clause renders for 013", lines.some((l) => l.includes("[\u00a73 + \u00a72]")), true);
+ok("decoder-side §4 clause renders for 013", lines.some((l) => l.includes("[\u00a74]")), true);
 ok("a cite line renders for 002", lines.some((l) => l.startsWith("  cite: SPEC 3.3")), true);
 ok("no unexplained section for a fully-covered report", lines.some((l) => l.includes("UNEXPLAINED")), false);
 
