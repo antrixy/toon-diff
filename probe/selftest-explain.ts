@@ -94,7 +94,7 @@ ok("013 python->ts: both endpoints constrained", rPyTs.verdicts.length, 2);
 // than a co-defendant. Under the old version-only logic it read
 // "violates-current" purely because the rule predates every claimed version.
 ok("013 python->ts: python is conformant (bignum holds the value)", rPyTs.verdicts.find((v) => v.side === "python")!.verdict, "conformant");
-ok("013 python->ts: ts violates as DECODER", rPyTs.verdicts.find((v) => v.side === "ts")!.verdict, "violates");
+ok("013 python->ts: ts satisfies its documented §4 policy (post-#331)", rPyTs.verdicts.find((v) => v.side === "ts")!.verdict, "documented-policy");
 ok("013 python->ts: ts is cited under §4", rPyTs.verdicts.find((v) => v.side === "ts")!.clause, "§4");
 // And the mirror: with TS encoding, the fault moves to the encoder side and
 // rust becomes the faithful relay.
@@ -135,19 +135,28 @@ const post71Rust = post71.explanations[1].rules[0].verdicts[0];
 ok("rust at 3.3 flips to violates-claimed", post71Rust.verdict, "violates-claimed");
 ok("python verdict unchanged", post71.explanations[0].rules[0].verdicts[0].verdict, "violates-current");
 
-console.log("Part 4: the post-#329 world (numeric facts as a parameter)");
-// #329 documents the DECODER's out-of-range policy. On merge, ts-as-decoder
-// becomes documented-policy — but ts-as-encoder must NOT move, because the
-// §3 host-type mapping is a separate obligation the docs PR does not address.
-const post329 = explain(MATRIX_2026_07_12, corpus, undefined, {
+console.log("Part 4: the PRE-#331 world (numeric facts as a parameter)");
+// #331 merged 2026-07-26 and documented the DECODER's out-of-range policy, so
+// the post-merge verdicts are now the BASELINE above. What stays worth proving
+// is that the engine can still express the world before it: parameterize the
+// decoder policy back to null and ts-as-decoder returns to violating §4.
+const pre331 = explain(MATRIX_2026_07_12, corpus, undefined, {
   ...NUMERIC_FACTS,
-  ts: { ...NUMERIC_FACTS.ts, decoderPolicy: "approximate" },
+  ts: { ...NUMERIC_FACTS.ts, decoderPolicy: null },
 });
-const p329PyTs = post329.explanations[5].rules[0];
-ok("post-#329: ts-as-decoder satisfies its documented §4 policy", p329PyTs.verdicts.find((v) => v.side === "ts")!.verdict, "documented-policy");
-ok("post-#329: python still conformant", p329PyTs.verdicts.find((v) => v.side === "python")!.verdict, "conformant");
-const p329TsRust = post329.explanations[4].rules[0];
-ok("post-#329: ts-as-ENCODER still violates (§3 gap survives)", p329TsRust.verdicts.find((v) => v.side === "ts")!.verdict, "violates");
+const p331PyTs = pre331.explanations[5].rules[0];
+ok("pre-#331: ts-as-decoder violated §4 (undocumented)", p331PyTs.verdicts.find((v) => v.side === "ts")!.verdict, "violates");
+ok("pre-#331: python still conformant", p331PyTs.verdicts.find((v) => v.side === "python")!.verdict, "conformant");
+const p331TsRust = pre331.explanations[4].rules[0];
+ok("pre-#331: ts-as-ENCODER violates (§3 gap predates the fix)", p331TsRust.verdicts.find((v) => v.side === "ts")!.verdict, "violates");
+// THE THESIS, as a single assertion: a decoder-only docs fix moved the decoder
+// verdict and left the encoder verdict untouched. Both-or-neither could not
+// have produced this pair.
+ok(
+  "the §3 encoder verdict is IDENTICAL before and after #331",
+  p331TsRust.verdicts.find((v) => v.side === "ts")!.verdict === rTsRust.verdicts.find((v) => v.side === "ts")!.verdict,
+  true,
+);
 
 console.log("Part 5: rendering");
 const lines = renderExplainReport(report);
@@ -159,12 +168,12 @@ ok("no PENDING lines render (all rules citable)", lines.some((l) => l.includes("
 ok("unattributed-fault note is GONE (013 now attributes)", lines.some((l) => l.includes("fault not attributed")), false);
 ok("per-side clause renders for 013", lines.some((l) => l.includes("[\u00a73 + \u00a72]")), true);
 ok("decoder-side §4 clause renders for 013", lines.some((l) => l.includes("[\u00a74]")), true);
-ok("a cite line renders for 002", lines.some((l) => l.startsWith("  cite: SPEC 3.3")), true);
+ok("a cite line renders for 002", lines.some((l) => l.startsWith("  cite: SPEC 4.1")), true);
 ok("no unexplained section for a fully-covered report", lines.some((l) => l.includes("UNEXPLAINED")), false);
 
 console.log();
 if (fail === 0) {
-  console.log(`EXPLAIN ENGINE PROVEN: ${pass} checks pass. Today's 7 divergences are explained with citations, fenced stubs, side-scoped verdicts, and a parameterized post-#71 future.`);
+  console.log(`EXPLAIN ENGINE PROVEN: ${pass} checks pass. Today's 7 divergences are explained with citations, fenced stubs, side-scoped verdicts, a parameterized post-#71 future, and a parameterized pre-#331 past.`);
 } else {
   console.log(`EXPLAIN ENGINE FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);

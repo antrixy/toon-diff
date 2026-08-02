@@ -95,7 +95,7 @@ ok("python encoding 2^53+1 is conformant", encoderVerdict(V, python).verdict, "c
 ok("ts encoding 2^53+1 violates", encoderVerdict(V, ts).verdict, "violates");
 ok("ts encoder is judged under §3 + §2", encoderVerdict(V, ts).clause, "§3 + §2");
 ok("ts encoder text names the lossless claim it contradicts", encoderVerdict(V, ts).text.includes("claim lossless"), true);
-ok("ts decoding from rust violates §4", decoderVerdict(V, rust, ts).verdict, "violates");
+ok("ts decoding from rust satisfies its documented §4 policy (post-#331)", decoderVerdict(V, rust, ts).verdict, "documented-policy");
 ok("ts decoder is judged under §4", decoderVerdict(V, rust, ts).clause, "§4");
 ok("rust decoding from ts is a faithful relay", decoderVerdict(V, ts, rust).verdict, "conformant");
 ok("faithful-relay text puts the loss upstream", decoderVerdict(V, ts, rust).text.includes("upstream"), true);
@@ -105,15 +105,18 @@ ok("rust->rust self-pair is conformant on 2^53+1", bothVerdict(V, rust).verdict,
 // Nobody owes anything on an in-domain value.
 ok("no side is faulted on the safe boundary", encoderVerdict(SAFE, ts).verdict, "conformant");
 
-console.log("Part 5: post-#329 — decoder documented, encoder gap survives");
-const tsDocumented: NumericImplFacts = { ...ts, decoderPolicy: "approximate" };
-ok("documented decoder policy satisfies §4", decoderVerdict(V, rust, tsDocumented).verdict, "documented-policy");
-ok("its text names the documented policy", decoderVerdict(V, rust, tsDocumented).text.includes("documented \u00a74"), true);
+console.log("Part 5: pre-#331 past and the encoder gap that outlived it");
+// #331 merged 2026-07-26, so the documented-decoder verdict is now the live
+// baseline above. Parameterizing the policy back to null recovers the world
+// before it — the engine must still be able to state both.
+const tsUndocumented: NumericImplFacts = { ...ts, decoderPolicy: null };
+ok("pre-#331: an undocumented decoder policy violated §4", decoderVerdict(V, rust, tsUndocumented).verdict, "violates");
+ok("post-#331 text names the documented policy", decoderVerdict(V, rust, ts).text.includes("documented \u00a74"), true);
 // THE finding the old both-or-neither model could not express: #329 is a
 // DECODER docs PR, so the §3 host-type mapping gap is untouched by it.
-ok("ts-as-encoder still violates after #329", encoderVerdict(V, tsDocumented).verdict, "violates");
+ok("ts-as-encoder violates in BOTH worlds (#331 is decoder-only)", encoderVerdict(V, ts).verdict === encoderVerdict(V, tsUndocumented).verdict, true);
 // And the encoder-side fix is a different edit again.
-const tsFullyDocumented: NumericImplFacts = { ...tsDocumented, encoderPolicy: "approximate", claimsLossless: false };
+const tsFullyDocumented: NumericImplFacts = { ...ts, encoderPolicy: "approximate", claimsLossless: false };
 ok("documenting the host-type mapping clears the encoder", encoderVerdict(V, tsFullyDocumented).verdict, "documented-lossy");
 const tsQuoting: NumericImplFacts = { ...ts, encoderPolicy: "quoted-lossless" };
 ok("a documented quoted-lossless path reads as lossless", encoderVerdict(V, tsQuoting).verdict, "documented-lossless");

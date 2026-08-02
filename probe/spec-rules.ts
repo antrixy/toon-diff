@@ -26,7 +26,20 @@
  * text; section numbers are never guessed.
  */
 
-export const SPEC_CURRENT = "3.3"; // bump deliberately, with a ref, when the live spec moves
+export const SPEC_CURRENT = "4.1"; // bump deliberately, with a ref, when the live spec moves
+// REF: toon-format/spec SPEC.md v4.1, header "Date: 2026-07-26", read 2026-08-02.
+// 3.3 -> 4.1 crossed a major boundary, so §2/§3/§4 were re-read in full rather
+// than assumed: §2 is still Data Model and still scopes the round-trip MUST to
+// in-domain values ("MUST emit sufficient precision so that ... decode(encode(x))
+// equals x"), with out-of-domain giving the encoder a MAY plus a documentation
+// MUST on the quoted-string branch; §3 is still Encoding Normalization and still
+// says the host-type mapping "is implementation-defined and MUST be documented";
+// §4 is still Decoding Interpretation and still permits an approximate return
+// only as a documented policy ("Implementations MUST document their out-of-range
+// policy; lossless-first is RECOMMENDED"). The per-side attribution therefore
+// survives the bump unchanged — this is a citation refresh, not a re-verdicting.
+// NOTE: section TITLES moved even where numbers held (§9.5 is now "Objects of
+// Uniform Objects – Keyed Tabular Form"), so anchors change but §-numbers do not.
 
 export interface SpecRule {
   /** Kebab-case id, referenced from case sidecars (e.g. "empty-array-canonical-literal"). */
