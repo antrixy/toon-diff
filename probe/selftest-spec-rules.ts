@@ -67,6 +67,22 @@ ok("013 rule constrains the round trip", ip.appliesTo, "round-trip");
 ok("013 rule is judged by numeric domain, not version", ip.verdictKind, "numeric-domain");
 ok("002 rule keeps the default version verdicts", ea.verdictKind ?? "version", "version");
 
+// v0.4: the first rule entered from a PROPERTY-LAYER finding rather than from
+// reading the spec. It is deliberately a STUB -- its sections were read from a
+// curled SPEC.md, and this file's 002 note records that fetched spec copies have
+// been observed stale, so it must not be citable until browser-verified.
+const nk = rules.get("non-ascii-key-quoting")!;
+ok("7.3 rule present", nk !== undefined, true);
+ok("7.3 rule is a stub (sections pending browser verification)", isCitable(nk), false);
+ok("7.3 rule constrains the ENCODER only (\u00a77.4 makes decoders permissive)", nk.appliesTo, "encoder");
+ok("7.3 rule refs its rust filing", (nk.refs ?? []).some((r) => r.includes("toon-rust/issues/77")), true);
+ok("7.3 rule refs its python filing", (nk.refs ?? []).some((r) => r.includes("toon-python/issues/65")), true);
+ok("7.3 rule cites no CHANGELOG (introducedIn unverified)", nk.changelog, null);
+// The two verdicts this rule actually produces today, pinned so a change in
+// introducedIn cannot silently re-verdict the filed findings.
+ok("7.3 verdict for rust (claims 3.0)", specVerdict("3.0", nk), "violates-claimed");
+ok("7.3 verdict for python (claims nothing)", specVerdict(null, nk), "violates-current");
+
 // The 002 episode as a truth table. Verdicts are CONDITIONAL on an observed
 // divergence — explain-layer code only asks about the failing side.
 console.log("Part 1b: verdict truth table (002 rule, introducedIn 3.1)");

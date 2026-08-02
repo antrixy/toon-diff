@@ -110,6 +110,26 @@ export const SPEC_RULES: SpecRule[] = [
     notes:
       "browser-verified 2026-07-16 against live SPEC.md v3.3 + CHANGELOG ([1.3] added 'all implementations MUST preserve round-trip fidelity (§2)'; [1.4] added decoder out-of-range handling; [3.3] spelled out the round-trip equality predicate). Empirically the 2^53+1 loss sits in the TS f64 path on BOTH sides: host ingestion rounds before encode (§3 host-type mapping), and decode() returns an approximate value for a valid wire token with NO documented out-of-range policy — while the TS docs affirmatively claim lossless round-trips, and normalize.ts already quotes out-of-range BigInt losslessly. Filed upstream as toon#329 (2026-07-16), decoder-side leading. v0.4: verdictKind numeric-domain — §2's round-trip MUST is scoped to IN-DOMAIN values (browser-verified §2/§3/§4 2026-07-25), so fault IS attributed per side and the v0.3 'not attributed' note-line no longer renders for this rule; rust and python are conformant on 013 rather than co-defendants",
   },
+  {
+    id: "non-ascii-key-quoting",
+    title:
+      "object keys, entry keys and tabular field names that fall outside the ASCII unquoted-key pattern MUST be quoted and escaped; the pattern is ASCII-only, so a non-ASCII character ANYWHERE in a key requires quoting",
+    sections: [], // STUB — see notes: read from fetched SPEC.md, not browser-verified
+    introducedIn: null,
+    changelog: null,
+    appliesTo: "encoder",
+    refs: [
+      "https://github.com/toon-format/spec/blob/main/SPEC.md",
+      "https://github.com/toon-format/toon-rust/issues/77",
+      "https://github.com/toon-format/toon-python/issues/65",
+    ],
+    notes:
+      "FIRST RULE ENTERED FROM A PROPERTY-LAYER FINDING rather than from reading the spec. gen/fuzz.ts --mode prop surfaced it on the general channel; no seed and no LOOKALIKE_PAYLOADS entry carries a non-ASCII key in a non-leading position, so the operator set could not have reached it. " +
+      "STUB ON PURPOSE: the governing sections (7.3 for the pattern; 6 for fieldname = key in headers) were read from a CURLED SPEC.md at tags v3.0.0 and v4.1, not from the browser. The 002 note in this file records that fetched spec copies have been observed stale, so sections stay empty and the rule stays non-citable until browser-verified. Fill sections and re-run explain. " +
+      "EVIDENCE (reproduced against published releases, not through our adapters for rust): ts @toon-format/toon 2.3.0 quotes correctly in every position; toon-format 0.5.0 (rust) quotes NO non-ASCII key in any position, though it does quote non-matching ASCII such as \"a-b\" — a reject-list check where an accept-list is required; toon_format 0.9.0b1 (python) quotes only when the non-ASCII character is at index 0, identical for BMP and CJK, so the head class is checked correctly and the tail is not. " +
+      "PER-SIDE, AND THIS IS THE POINT: appliesTo is encoder because §7.4 requires DECODERS to accept any unquoted key token as a literal key, even one an encoder is forbidden to emit. All three decoders are conformant here by design; only the encoder cell moves. Second independent instance of the thesis-D per-side argument after the toon#331 decoder-only move — and the first this project produced rather than observed. " +
+      "introducedIn NULL IS AN APPROXIMATION: verified present and textually identical at v3.0 and v4.1, but the CHANGELOG has not been read, so the true introduction point is unknown. Null happens to yield the right verdicts today (rust claims 3.0 -> violates-claimed; python claims nothing -> violates-current), but an implementation claiming something older than the real introduction version would be mis-verdicted. Set introducedIn + changelog once the CHANGELOG is browser-read.",
+  },
 ];
 
 const RULE_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
