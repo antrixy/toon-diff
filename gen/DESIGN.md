@@ -1,8 +1,16 @@
-# gen/ — the v0.2 mutation generator
+# gen/ — the generators
 
-Turns the 13 hand-written seeds into inputs nobody wrote, while keeping the same
-proven judge (`oracle/ingest.ts`). Mutation-first: every generated case is a seed
-with an ordered pipeline of operators applied. From-scratch generation is deferred.
+Produces inputs nobody wrote, while keeping the same proven judge
+(`oracle/ingest.ts`). Two generators, added in different milestones and answering
+different questions:
+
+- **Mutation (v0.2)** — every case is one of the 13 hand-written seeds with an
+  ordered pipeline of operators applied.
+- **Property (v0.4)** — every case is built from grammar productions, with no
+  seed involved. Added for thesis D; see [The property layer](#the-property-layer-v04).
+
+Both share `model.ts`, `emit.ts` and `prng.ts`, so the no-f64 invariant below is
+one invariant, not two.
 
 ## The one invariant that matters
 
@@ -58,9 +66,16 @@ order it sees. `PerturbUniformity` hunts in exactly that gap.
 A case's identity is `(seed file, rngSeed, maxOps)`. `generateCase` is pure over
 those, so `replay-case.ts` reproduces the exact bytes in a fresh process — the
 basis for a fileable upstream issue. Each case carries a provenance record
-`{seed, rngSeed, pipeline:[{op,detail}]}`. That record is load-bearing twice over:
-the **shrinker** (next milestone) reduces a failure by pruning this pipeline, and
-v0.3's provenance-grouped corpus consumes it directly.
+`{seed, rngSeed, pipeline:[{op,detail}]}`. That record is load-bearing for the
+**shrinker** (shipped in v0.2, below), which reduces a failure by pruning this
+pipeline and re-running.
+
+Note what it is **not**. v0.3's corpus does **not** consume this record.
+`probe/corpus.ts` validates a `.meta.json` sidecar of free-text `origin` /
+`invariant` (plus optional `refs` / `specRules`), never imports `gen/`, and has
+no field for a seed, an rngSeed or a pipeline. Corpus provenance is carried by
+the bucket directory plus that prose line. Earlier text in this file, in
+`generate.ts` and in `cli.ts` claimed direct consumption; it was never true.
 
 ## Files
 
@@ -72,8 +87,14 @@ v0.3's provenance-grouped corpus consumes it directly.
 - `cli.ts` — `preview` / `write` (no adapters needed; runs anywhere).
 - `fuzz.ts` — streams generated cases through the differential matrix
   (**full env**: needs the TOON impls, like the Rust adapter track).
-- `replay-case.ts` — reproduce one case from its identity.
-- `selftest-emit.ts`, `selftest-operators.ts` — proofs, judged by the oracle.
+- `replay-case.ts` — reproduce one case from its identity (dispatches on the
+  `mut:` / `prop:` prefix).
+- `property.ts` — the v0.4 from-scratch generator: channels, archetypes, fuel,
+  and the canonical weight configuration.
+- `toon-surface.ts` — TOON wire-syntax productions. Mints string contents only;
+  imported by `property.ts`'s `surface-toon` channel and by nothing else.
+- `selftest-emit.ts`, `selftest-operators.ts`, `selftest-property.ts` — proofs,
+  judged by the oracle.
 
 ## Run
 
@@ -81,14 +102,37 @@ v0.3's provenance-grouped corpus consumes it directly.
 # proofs (no external deps — the oracle is pure):
 node --experimental-strip-types gen/selftest-emit.ts
 node --experimental-strip-types gen/selftest-operators.ts
+node --experimental-strip-types gen/selftest-property.ts
 
 # see / persist generated cases (no adapters needed):
 node --experimental-strip-types gen/cli.ts preview --per 3
-node --experimental-strip-types gen/cli.ts write   --per 20   # -> probe/generated/
+node --experimental-strip-types gen/cli.ts write   --per 20   # BROKEN, see below
 
 # fuzz the matrix (full env: TOON impls installed):
 node --experimental-strip-types gen/fuzz.ts --per 200
 ```
+
+## Known defects in the write path (v0.3 regressions, unfixed)
+
+Recorded here rather than left to be rediscovered. `preview`, `fuzz` and the
+selftests are unaffected — all three defects are confined to `cli.ts write`.
+
+- **`write` crashes on the first case.** `seed.name` is the corpus `key`, which
+  became bucket-prefixed in v0.3 (`seeds/001-empty-object.json`). `mkdirSync`
+  creates only the out dir, not the `seeds/` subdir that slash implies, so the
+  first `writeFileSync` fails with ENOENT. Never caught because `write` has no
+  selftest.
+- **The naming scheme collides with the corpus loader.** `NNN-name-gNNNN.json`
+  reuses the seed's three-digit id, and `loadCorpus` enforces per-bucket unique
+  ids all-or-nothing. Twenty mutations of seed 010 would refuse the whole corpus.
+  Generated-case id allocation is unspecified and is a prerequisite for any
+  promotion.
+- **`provenance.jsonl` is write-only.** Nothing reads it: `fuzz.ts` generates in
+  memory and `shrink-cli.ts --batch` reads a fuzz *output* file. It is a second
+  metadata format that the `.meta.json` sidecar superseded.
+
+`probe/generated/` is gitignored, so `write` output is scratch. It is not, and
+was never, a corpus promotion path.
 
 ## Shrinker (gen/shrink.ts, failure-signature.ts, shrink-cli.ts)
 
@@ -118,7 +162,198 @@ to just the needle and is 1-minimal; a mock-f64 predicate reduces a bloated case
 to the bare number; a 500-element array ddmins to length 2; and a case with TWO
 planted bugs, shrunk against one signature, keeps that bug and never switches.
 
+## The property layer (v0.4)
+
+From-scratch generation, deferred in v0.2 as "mutation-first covers the fault
+lines". Thesis D is what gives it a reason to exist.
+
+### What it claims, and what it does not
+
+Every value in the v0.3 matrix traces to one of 13 hand-written seeds through 12
+operators designed against those seeds, with fault lines taken from toon#310.
+That is a human-and-ecosystem prior on the value space.
+
+The property layer does **not** remove that prior. It relocates it — out of
+individual example values and into grammar productions, archetypes, weights and
+fuel policy. Humans still define the distribution over the input space. The
+honest claim is therefore narrower than "values nobody wrote":
+
+> Deterministic evidence, independent of implementation behaviour and of
+> hand-authored example values, generated under explicit and reviewable priors.
+
+That is the wording the v0.4 write-up uses. Anything stronger is an overclaim.
+
+### Three channels, kept apart
+
+Because the channels differ in how targeted they are, they are separate in the
+identity string and in reports rather than aggregated under "property
+generated". This is the same refusal-to-collapse as the per-side numeric-domain
+verdicts: two things with different epistemic status do not share one label.
+
+| Channel | What it is | Independence claim |
+|---------|-----------|--------------------|
+| `general` | Broad recursive JSON grammar | Strongest — seed-independent exploration |
+| `shape-*` | Coverage-directed structural archetypes | Model-based fuzzing; encodes known fault lines |
+| `surface-toon` | Strings drawn from TOON's own wire syntax | Spec-directed; targeted at the lookalike class |
+
+Only `general` carries the strong independence language.
+
+### Shape: archetype, then fuel
+
+Two-phase. Draw a shape archetype, then fill it under a fuel budget. A plain
+recursive grammar spends nearly all its probability mass on small nondescript
+values and would essentially never land a 200-row uniform table — the region
+toon#310 says the ecosystem under-tests. Depth/breadth caps make everything the
+same middling shape.
+
+Archetypes: flat-wide object, long repetitive array, uniform table, near-uniform
+table, deep nest, plus the unconstrained recursive draw that is the `general`
+channel.
+
+Fuel, not sampling, is what guarantees termination — every recursive step
+receives strictly less fuel, every emitted node costs at least one unit, and a
+zero-fuel call can emit only a terminal. The bulk selftest catches implementation
+mistakes; it does not constitute the proof.
+
+A node budget does not bound output size — one node can hold a million-character
+string or a hundred-thousand-digit number — so keys and scalar lexemes carry
+their own bounded-length budgets and output has an independent hard byte cap.
+`size` means **maximum total value nodes**, which is stable enough to be part of
+a case's identity.
+
+### Numbers: grammar-driven, no boundary constants
+
+Number lexemes are assembled from the JSON number grammar — draw a digit count,
+a sign, optionally a fraction, optionally an exponent, build the string. **No
+constant in the property generator names 2^53, i64/u64 max, or any other
+boundary.** Reusing `BumpNumber`'s palette would make this a re-parameterisation
+of the operator set wearing a different hat.
+
+The generator reaches large-integer regions because the digit-count distribution
+covers them — a chosen broad-region prior, not a prior-free accident. The
+defensible advantage is that it explores those regions **without encoding
+implementation-specific numeric limits or exact regression constants**.
+
+A lexeme assembled from digits as a string never touches a JS number, so the
+no-f64 invariant holds by construction. Numeric content is carried only as
+branded lexeme strings; no production in the number path accepts or returns JS
+number content.
+
+A selftest may contain the 2^53 threshold in order to check that generated values
+cross it. The constraint is on the generator, not on its judge.
+
+### Strings: three weighted sources
+
+Ordinary text, delimiter-stress text (the 008/009 regions), and complete
+structural tokens.
+
+Structural tokens are measure-zero in the JSON string grammar — uniform character
+draws will never produce `[2]{a,b}:` — so the numbers approach does not transfer.
+They are instead generated from TOON's own surface grammar, which yields tokens
+like `[7]{q,z,r}:` that no human wrote, rather than reusing the twelve-element
+`LOOKALIKE_PAYLOADS` list in `operators.ts`.
+
+**Containment.** This puts TOON syntax knowledge inside `gen/` for the first
+time, crossing a line held on purpose elsewhere: the oracle knows nothing about
+TOON and `shrink.ts` knows nothing about TOON. The rule is therefore: the
+production lives in one clearly-named module, mints **string contents only**, and
+never touches structure or judging. Nothing that decides a verdict learns TOON.
+The `general` channel does not import it.
+
+**Spec relationship.** TOON has no published formal grammar, so this module is an
+interpretation of prose and must declare what it models — spec version, the
+clauses it corresponds to, and whether it covers the full relevant syntax or a
+subset. Golden outputs cannot detect that the *spec* moved while the module stood
+still, so `selftest-property.ts` compares the module's declared version against
+`SPEC_CURRENT` in `probe/spec-rules.ts` and goes red on a bump. The comparison
+lives in the selftest, not in the module, so `gen/` still imports nothing from
+`probe/`.
+
+### Identity, versioning and replay
+
+A property case's identity is `(channel, rngSeed, size)` under a generator
+version, written as one line in the corpus sidecar:
+
+```
+prop:v1/general@1000003/40
+prop:v1/shape-uniform-table@1000003/400
+mut:seeds/010-numbers.json@1000003/3
+```
+
+`replay-case.ts` dispatches on the prefix. The recipe lives in a validated
+optional `replay` field on `CaseMeta`, not smuggled into free-text `origin` —
+replayability is a truth claim, and schema rigour follows the importance of the
+claim rather than the number of files.
+
+The grammar is part of the identity: change a weight or a production and the same
+triple yields different bytes. `PROPERTY_GEN_VERSION` labels that, and three
+things enforce it, because pinned end-to-end outputs alone would miss a weight
+change that happens not to affect the pinned seeds:
+
+1. Golden byte-exact outputs, per archetype and per scalar production family.
+2. Direct tests of individual productions and branches.
+3. A canonical, deterministically serialised weight/production configuration —
+   one exported object, not literals scattered through constructors — which is
+   included in the version review, printed in fuzz-run metadata, and summarised
+   in reports.
+
+**Replay policy: stored case bytes are authoritative.** A promoted case's
+`replay` line is diagnostic provenance, not a permanent reconstruction recipe,
+and old generator versions are not preserved. This is already true of `mut:`
+recipes, which depend on `operators.ts` never changing.
+
+### Proof obligations for `selftest-property.ts`
+
+Twelfth pure selftest — a deliberate count move, named in the commit body.
+
+1. **Deterministic construction** — version, channel, seed and size reproduce
+   identical value, text and metadata.
+2. **Golden outputs** — pinned per archetype and per scalar production family.
+3. **Lossless round trip** — generated value → emitted text → independent ingest
+   preserves exact value and numeric lexemes, judged by `oracle/ingest.ts`. Bulk
+   well-formedness alone is not sufficient: it establishes syntax acceptance, not
+   fidelity.
+4. **Numeric-path integrity** — numeric content is represented only by branded
+   lexeme strings; every number-form production is exercised.
+5. **Structural budget** — fuel strictly decreases, node count stays within
+   budget, output stays within the byte cap.
+6. **Direct shape validation** — each archetype constructor is invoked directly
+   and produces its promised structure, with no reliance on probabilistic
+   selection. The test path and the production path share one constructor.
+7. **Sampler validation** — channel and production selection match the canonical
+   weight configuration.
+8. **Dependency separation** — `property.ts` imports neither the seed corpus nor
+   `operators.ts`; the TOON surface module does not import `LOOKALIKE_PAYLOADS`;
+   a deterministic sample produces payloads absent from those twelve.
+9. **Spec relationship** — declared TOON version matches `SPEC_CURRENT`.
+10. **Cross-runtime determinism** — the golden suite passes on both supported
+    Node versions.
+
+Obligation 10 is not ceremony. Goldens are pinned in the sandbox (Node 22) while
+sweeps run on the Mac (Node 24.4.1). mulberry32 is integer-exact — `Math.imul` is
+spec-defined and division by 2^32 is exact — so stability is expected, but a
+tripwire that fires depending on which machine ran it would be worse than no
+tripwire, and the expectation is unverified.
+
+An earlier draft proposed an eleventh obligation: grep `property.ts` for boundary
+constants and lookalike payloads. Dropped as theatre. It proves a property of the
+file rather than of the generator, is defeated by a constant assembled at
+runtime, and trips on an innocent comment. Obligation 8 is the durable form.
+
+### Open before implementation
+
+- Fuel cost model — per-node cost and the container split policy.
+- Whether an archetype promises a minimum viable shape. A "uniform table" at
+  size 4 is not a table; either reject sizes below each archetype's minimum,
+  scale down and weaken the guarantee, or treat `size` as a target rather than a
+  cap. The choice affects replay semantics.
+- All weights: archetype, string-source, number-form.
+- Generated-case id allocation, and a promotion command that replays, verifies,
+  shrinks, allocates the next bucket id, writes case and sidecar atomically,
+  revalidates the corpus, and refuses duplicate content or duplicate recipes.
+  This fixes the v0.3 id collision once, for both generators.
+
 ## Not in this milestone
 
-- **From-scratch generation** — deferred; mutation-first covers the fault lines.
-- **Rust adapter** — separate track (needs cargo + network; run in a Codespace).
+- **Grammar-directed generation from a machine-readable spec** — TOON publishes
+  no formal grammar; the surface module is a hand-written interpretation of §-text.
