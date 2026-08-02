@@ -91,8 +91,10 @@ the bucket directory plus that prose line. Earlier text in this file, in
   `mut:` / `prop:` prefix).
 - `property.ts` — the v0.4 from-scratch generator: channels, archetypes, fuel,
   and the canonical weight configuration.
-- `toon-surface.ts` — TOON wire-syntax productions. Mints string contents only;
-  imported by `property.ts`'s `surface-toon` channel and by nothing else.
+- `toon-surface.ts` — the eight TOON wire-syntax families as productions, plus
+  `TOON_SURFACE_SPEC` and per-family basis. Mints string contents only; imports
+  only `prng.ts`; imported by `property.ts`'s `surface-toon` channel and nothing
+  else. The single place in the project that knows TOON syntax.
 - `selftest-emit.ts`, `selftest-operators.ts`, `selftest-property.ts` — proofs,
   judged by the oracle.
 - `selftest-cli-write.ts` — proves the `write` batch path: flat filenames,
@@ -286,8 +288,9 @@ than as one blanket statement:
 | List marker | `- `, `- item`, `  - nested` | §5.2 cl.2, §9.2, §9.4, §10 — prose, precise |
 | Key-value line | `key:`, `key: value` | §5.2 cl.4, §7.4 — prose |
 | Comment / `#`-leading | `# text` | §5.1 — prose, and §7.2's quoting rule |
+| Empty-array token | `[]`, `key: []`, `- []` | §9.1, §9.3, §9.5, §4 — prose |
 
-Four of these are ABNF-derived; three are prose-derived but stated precisely
+Five of these are ABNF-derived; three are prose-derived but stated precisely
 enough to generate from. The module records which, because a claim of
 "spec-derived" that quietly spans both would be the kind of overclaim this
 project files against others.

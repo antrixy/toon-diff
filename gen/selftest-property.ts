@@ -27,6 +27,10 @@ import { emit } from "./emit.ts";
 import { ingest, equalRaw } from "../oracle/ingest.ts";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { SPEC_CURRENT } from "../probe/spec-rules.ts";
+import { LOOKALIKE_PAYLOADS } from "./operators.ts";
+import { FAMILIES, FAMILY_BASIS, PRODUCTIONS, TOON_SURFACE_SPEC, token } from "./toon-surface.ts";
+import { makeRng } from "./prng.ts";
 import {
   CHANNELS, CONFIG, PROPERTY_GEN_VERSION, canonicalConfig, collectLexemes,
   countNodes, depthOf, eligibleChannels, generateProperty, identityOf,
@@ -35,7 +39,9 @@ import {
 import type { Channel } from "./property.ts";
 
 let failures = 0;
+let total = 0;
 function check(label: string, ok: boolean) {
+  total++;
   if (!ok) failures++;
   console.log(`${ok ? "  ok  " : " FAIL "} ${label}`);
 }
@@ -76,6 +82,7 @@ const CHANNEL_GOLDENS: [Channel, number, string][] = [
   ["shape-repetitive-array", 6, "[-91359131927840765503,-91359131927840765503,-91359131927840765503,-91359131927840765503,-91359131927840765503]"],
   ["shape-uniform-table", 9, "[{\"本iAOçizkçw6õ\":-2829578527878331,\"_YP\":true},{\"本iAOçizkçw6õ\":\"dYFUK8grvz8Q-Fül1TSAñxatmsdNhu\",\"_YP\":\"rlfz_ip0gZM\"}]"],
   ["shape-near-uniform-table", 12, "[{\"本iAOçizkçw6õ\":null,\"_YP\":-39578527878331014854063547022375848},{\"本iAOçizkçw6õ\":\"AñxatmsdNhuçtorlfz_ip0gZMkJB0n5oP5Do\"},{\"本iAOçizkçw6õ\":36750518859821975652866866772165,\"_YP\":\"A8X14JWoriüYQw\"}]"],
+  ["surface-toon", 8, "[\"[0\\t]:\",\"[0\\t]{\\\"ZG\\\\rKekuL\\\"{CZ1\\tSuif\\t\\\"OcBG\\\"}}:\",\"# oXI1\",\"Ev7saq[1:|]{\\\"rp\\\\\\\\\\\"|Qm}:\",\"\\\"jylnZm\\\":\",\"AuOUKcJi[5982]: []\",\"[528|]:\"]"],
   ["shape-deep-nest", 6, "{\"torlfz_ip0gZMkJB0n5oP5\":{\"ñxatmsdNh\":{\"8Q-Fül1T\":{\"áEzkgiLõTKdYFUK8gr\":{\"ñQ5éQs_\":-91359131927840765503}}}}}"],
 ];
 
@@ -268,6 +275,69 @@ function keysOf(n: unknown): string[] {
   check(`all ${CHANNELS.length} channels are reachable by auto-selection`, seen.size === CHANNELS.length);
 }
 
+// ---- 9. spec relationship + surface-toon --------------------------------
+// Golden bytes prove the MODULE did not move. They cannot detect that the SPEC
+// moved while the module stood still, which is what this comparison is for.
+
+{
+  check(`toon-surface models the current spec (${TOON_SURFACE_SPEC.version} vs SPEC_CURRENT ${SPEC_CURRENT})`,
+    TOON_SURFACE_SPEC.version === SPEC_CURRENT);
+
+  check("every family records its basis and clauses",
+    FAMILIES.every((f) => {
+      const b = FAMILY_BASIS[f];
+      return b !== undefined && (b.basis === "abnf" || b.basis === "prose") && b.clauses.length > 0;
+    }));
+
+  check("every family has a production", FAMILIES.every((f) => typeof PRODUCTIONS[f] === "function"));
+
+  // INDEPENDENCE, STATED CORRECTLY. The claim is not that minted tokens never
+  // equal a hand-written one -- the palette holds short tokens like "[0]:" that
+  // any faithful §6 grammar must be able to produce, and a grammar that could
+  // never reach them would be the weaker one. The claim is that the palette is
+  // not the SOURCE: the module cannot import it (checked below), and the minted
+  // space is overwhelmingly outside it.
+  const minted: string[] = [];
+  for (const f of FAMILIES) {
+    for (let s2 = 1; s2 <= 250; s2++) minted.push(token(makeRng(s2 * 7919), f));
+  }
+  const palette = new Set<string>(LOOKALIKE_PAYLOADS);
+  const distinct = new Set(minted);
+  const outside = [...distinct].filter((t) => !palette.has(t));
+  check(`minted tokens are overwhelmingly outside the palette (${outside.length}/${distinct.size} distinct)`,
+    outside.length / distinct.size > 0.95);
+  check(`the palette's own reach is a vanishing share of the minted space (${distinct.size - outside.length} overlap)`,
+    distinct.size - outside.length <= palette.size);
+
+  // Each family is genuinely productive rather than emitting one constant.
+  check("every family produces more than one distinct token",
+    FAMILIES.every((f) => {
+      const seen = new Set<string>();
+      for (let s2 = 1; s2 <= 40; s2++) seen.add(token(makeRng(s2 * 104_729), f));
+      return seen.size > 1;
+    }));
+
+  // The three families the palette never reaches, asserted by shape.
+  const keyed = Array.from({ length: 40 }, (_, i) => token(makeRng((i + 1) * 613), "keyed-tabular-header"));
+  check("keyed-tabular headers carry the [N:]{...}: form the palette lacks",
+    keyed.every((t) => /\[\d+:[\t|]?\]\{.+\}:$/.test(t)) &&
+    !LOOKALIKE_PAYLOADS.some((p) => /\[\d+:/.test(p)));
+
+  const comments = Array.from({ length: 40 }, (_, i) => token(makeRng((i + 1) * 613), "comment-line"));
+  check("comment lines lead with # after spaces only (no tab, per §5.1)",
+    comments.every((t) => /^ *#/.test(t) && !/^[^#]*\t/.test(t)));
+
+  const empties = Array.from({ length: 40 }, (_, i) => token(makeRng((i + 1) * 613), "empty-array-token"));
+  check("empty-array tokens include the position-flipping bare form",
+    empties.some((t) => t === "[]") && empties.some((t) => t.includes(": []")));
+
+  // The surface channel actually places tokens, in value or key position.
+  const sc = generateProperty(GOLDEN_SEED, 20, { channel: "surface-toon" });
+  const surfaceText = sc.text;
+  check("surface-toon places structural tokens into the value space",
+    /\[\d+[\t|]?\]/.test(surfaceText) || /#/.test(surfaceText) || /- /.test(surfaceText));
+}
+
 // ---- 8. dependency separation ---------------------------------------------
 // The independence claim is structural, so it is checked structurally: an import
 // graph, not a grep for constants. A source scan for "2^53" would prove a
@@ -276,15 +346,27 @@ function keysOf(n: unknown): string[] {
 {
   const src = readFileSync(fileURLToPath(new URL("./property.ts", import.meta.url)), "utf8");
   const imports = [...src.matchAll(/^\s*import[\s\S]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
-  const allowed = new Set(["./model.ts", "./emit.ts", "./prng.ts"]);
+  // toon-surface.ts is allowed IN -- it is the containment line, carrying strings
+  // inward. The corpus and the operator set remain out.
+  const allowed = new Set(["./model.ts", "./emit.ts", "./prng.ts", "./toon-surface.ts"]);
   const unique = [...new Set(imports)];
   check(`property.ts imports only the shared substrate (${unique.join(", ")})`,
     unique.length > 0 && unique.every((i) => allowed.has(i)));
   check("property.ts imports neither the seed corpus nor the operator set",
     !imports.some((i) => i.includes("corpus") || i.includes("operators")));
+
+  // The containment rule, checked rather than trusted: the one module that knows
+  // TOON syntax depends on nothing but the PRNG.
+  const surfaceSrc: string = readFileSync(fileURLToPath(new URL("./toon-surface.ts", import.meta.url)), "utf8");
+  const surfaceImports = [...new Set([...surfaceSrc.matchAll(/^\s*import[\s\S]*?from\s+"([^"]+)"/gm)].map((m) => m[1]))];
+  check(`toon-surface.ts imports only the PRNG (${surfaceImports.join(", ")})`,
+    surfaceImports.length === 1 && surfaceImports[0] === "./prng.ts");
 }
 
+// Counted, not written by hand: a hand-maintained total drifted from the printed
+// checks twice during development, and a wrong count is worse than no count when
+// the number is meant to be a promotion tripwire.
 console.log(failures === 0
-  ? "\nPROPERTY LAYER PROVEN: 31 checks pass. Grammar-driven, budget-bounded, replayable, and pinned against silent grammar drift."
-  : `\nPROPERTY LAYER BROKEN: ${failures} check(s) failed.`);
+  ? `\nPROPERTY LAYER PROVEN: ${total} checks pass. Grammar-driven, spec-anchored, budget-bounded, replayable, and pinned against silent grammar drift.`
+  : `\nPROPERTY LAYER BROKEN: ${failures} of ${total} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

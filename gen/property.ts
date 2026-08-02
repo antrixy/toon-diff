@@ -27,15 +27,17 @@
 // nothing else. Not the seed corpus, not operators.ts. Pinned by obligation 8 in
 // selftest-property.ts.
 //
-// The surface-toon channel (structural-lookalike strings drawn from TOON's own
-// wire syntax) is deliberately absent -- it crosses the containment line and
-// lands separately, with its own spec-version tripwire.
+// The surface-toon channel draws its STRING CONTENTS from gen/toon-surface.ts,
+// the one module that knows TOON syntax. That import is the containment line: it
+// carries strings inward and nothing else. The general channel and the shape
+// archetypes never call it.
 
 import type { GNode } from "./model.ts";
 import { rawNum, isRawNum, isArray, isObject } from "./model.ts";
 import { emit } from "./emit.ts";
 import { makeRng } from "./prng.ts";
 import type { Rng } from "./prng.ts";
+import { FAMILIES, token } from "./toon-surface.ts";
 
 /**
  * Bump when ANY production, weight or cap below changes -- the grammar is part of
@@ -52,6 +54,7 @@ export const CHANNELS = [
   "shape-uniform-table",
   "shape-near-uniform-table",
   "shape-deep-nest",
+  "surface-toon",
 ] as const;
 export type Channel = (typeof CHANNELS)[number];
 
@@ -81,6 +84,7 @@ export const CONFIG = {
     "shape-uniform-table": 3,
     "shape-near-uniform-table": 2,
     "shape-deep-nest": 1,
+    "surface-toon": 3,
   },
   minSize: {
     "general": 1,
@@ -89,6 +93,7 @@ export const CONFIG = {
     "shape-uniform-table": 7,
     "shape-near-uniform-table": 10,
     "shape-deep-nest": 4,
+    "surface-toon": 3,
   },
   /** Terminal vs container at a node with fuel to spare. */
   nodeWeights: { terminal: 5, object: 3, array: 3 },
@@ -105,6 +110,20 @@ export const CONFIG = {
   numberFormWeights: { integer: 6, fraction: 3, exponent: 2, both: 1 },
   /** Where a string's characters come from. */
   stringSourceWeights: { ordinary: 3, delimiterStress: 2 },
+  /**
+   * Which structural-token family the surface-toon channel draws. Weighted here
+   * rather than in toon-surface.ts, which stays a pure production library.
+   */
+  surfaceFamilyWeights: {
+    "array-header": 3,
+    "tabular-header": 3,
+    "nested-field-group": 2,
+    "keyed-tabular-header": 3,
+    "list-marker": 2,
+    "key-value-line": 2,
+    "comment-line": 2,
+    "empty-array-token": 3,
+  },
   /** An empty key is legal JSON and a known fault region; kept rare, not absent. */
   emptyKeyWeight: 1,
   nonEmptyKeyWeight: 24,
@@ -263,6 +282,11 @@ function keySet(rng: Rng, count: number): string[] {
   return keys;
 }
 
+/** One structural token, family chosen by the canonical weights. */
+function surfaceToken(rng: Rng): string {
+  return token(rng, weighted(rng, CONFIG.surfaceFamilyWeights, FAMILIES));
+}
+
 function scalar(rng: Rng): GNode {
   switch (weighted(rng, CONFIG.scalarWeights, ["null", "bool", "number", "string"] as const)) {
     case "null": return null;
@@ -385,6 +409,30 @@ const ARCHETYPES: Record<Exclude<Channel, "general">, (rng: Rng, size: number) =
       out.push(row);
     }
     return out;
+  },
+
+  // Strings that are complete TOON structural tokens, in both value and key
+  // position. A correct implementation must quote these on encode and decode
+  // them BACK TO THE SAME STRING -- never reparse them as structure (toon#324).
+  "surface-toon": (rng, size) => {
+    const count = size - 1;
+    if (rng.bool()) {
+      const out: GNode[] = [];
+      for (let i = 0; i < count; i++) out.push(surfaceToken(rng));
+      return out;
+    }
+    const obj: { [k: string]: GNode } = {};
+    const seen = new Set<string>();
+    for (let i = 0; i < count; i++) {
+      // Tokens in KEY position too: §7.3 requires an encoder to quote them, so a
+      // key that looks like a header is its own round-trip hazard.
+      let k = rng.int(3) === 0 ? surfaceToken(rng) : keyName(rng);
+      let n = 0;
+      while (seen.has(k)) k = `${k}${++n}`;
+      seen.add(k);
+      obj[k] = surfaceToken(rng);
+    }
+    return obj;
   },
 
   // Single-key objects all the way down: the OVER-tested region, kept for contrast.

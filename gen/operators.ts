@@ -298,15 +298,16 @@ export const DelimiterInject: Operator = {
 // O11 LookalikeInject: quoted scalars whose CONTENT is a COMPLETE TOON structural
 // token (the toon#324 class). DelimiterInject's palette stops at partial lookalikes
 // ("- item", "[bracket]"); this palette is the full grammar-token set: array
-// headers, tabular headers (bare and keyed), whole-value list markers (including
+// headers, tabular headers (keyless and key-prefixed), whole-value list markers (including
 // indented), and object-header lookalikes. A correct impl must quote these on
 // encode and decode them BACK TO THE SAME STRING -- never reparse them as
 // structure. Manufacturing them lets the fuzzer rediscover the #324 class
 // autonomously instead of by hand-written seed.
-const LOOKALIKE_PAYLOADS = [
+export const LOOKALIKE_PAYLOADS = [
   // array headers
   "[3]:", "[0]:", "[1]: x",
-  // tabular headers (bare + keyed)
+  // tabular headers (keyless + key-prefixed; NOT "keyed" in the §6/§9.5 sense,
+  // which means the [N:]{f}: form -- see gen/toon-surface.ts)
   "[2]{a,b}:", "[1]{id}:", "items[2]{x}:",
   // whole-value list markers (plain + indented)
   "- ", "- item", "  - nested",
