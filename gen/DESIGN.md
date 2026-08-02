@@ -86,9 +86,15 @@ the bucket directory plus that prose line. Earlier text in this file, in
 - `generate.ts` — recipe/provenance + pure `generateCase` / `replay`.
 - `cli.ts` — `preview` / `write` (no adapters needed; runs anywhere).
 - `fuzz.ts` — streams generated cases through the differential matrix
-  (**full env**: needs the TOON impls, like the Rust adapter track).
-- `replay-case.ts` — reproduce one case from its identity (dispatches on the
-  `mut:` / `prop:` prefix).
+  (**full env**: needs the TOON impls, like the Rust adapter track). `--mode
+  mut|prop` selects the case source; both share one NxN loop, one oracle
+  comparison and one spec-skew annotation, and differ only in identity
+  rendering. `--mode prop` sweeps every channel eligible at `--size` (or one
+  named `--channel`) rather than auto-selecting, because a sweep is not a sample.
+- `replay-case.ts` — reproduce one case from its identity. Three positional
+  arguments is a mutation case; a single `prop:` recipe is a property case. A
+  recipe from a different `PROPERTY_GEN_VERSION` is refused, not replayed: the
+  grammar is part of the identity, so those bytes would differ.
 - `property.ts` — the v0.4 from-scratch generator: channels, archetypes, fuel,
   and the canonical weight configuration.
 - `toon-surface.ts` — the eight TOON wire-syntax families as productions, plus

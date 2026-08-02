@@ -26,6 +26,7 @@ import { parse } from "./model.ts";
 import { emit } from "./emit.ts";
 import { ingest, equalRaw } from "../oracle/ingest.ts";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { SPEC_CURRENT } from "../probe/spec-rules.ts";
 import { LOOKALIKE_PAYLOADS } from "./operators.ts";
@@ -336,6 +337,30 @@ function keysOf(n: unknown): string[] {
   const surfaceText = sc.text;
   check("surface-toon places structural tokens into the value space",
     /\[\d+[\t|]?\]/.test(surfaceText) || /#/.test(surfaceText) || /- /.test(surfaceText));
+}
+
+// ---- replay through the CLI ----------------------------------------------
+// replayProperty() is covered above; this covers the ENTRY POINT. The cli.ts
+// write defect lived in argv handling and path resolution, not in the function
+// it called, so a recipe printed on a finding is only trustworthy if the command
+// that consumes it is exercised.
+
+{
+  const cli = fileURLToPath(new URL("./replay-case.ts", import.meta.url));
+  const run = (arg: string) =>
+    spawnSync(process.execPath, ["--experimental-strip-types", cli, arg], { encoding: "utf8" });
+
+  const want = generateProperty(GOLDEN_SEED, 24, { channel: "surface-toon" });
+  const got = run(want.recipe);
+  check("replay-case.ts reproduces a property recipe byte-for-byte",
+    got.status === 0 && got.stdout === want.text + "\n");
+
+  const stale = run(`prop:v${PROPERTY_GEN_VERSION + 1}/general@1/40`);
+  check("replay-case.ts refuses a recipe from another generator version",
+    stale.status !== 0 && stale.stdout === "");
+
+  const junk = run("prop:v1/no-such-channel@1/40");
+  check("replay-case.ts rejects an unparseable recipe", junk.status !== 0);
 }
 
 // ---- 8. dependency separation ---------------------------------------------
