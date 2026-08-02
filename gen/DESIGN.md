@@ -266,14 +266,56 @@ production lives in one clearly-named module, mints **string contents only**, an
 never touches structure or judging. Nothing that decides a verdict learns TOON.
 The `general` channel does not import it.
 
-**Spec relationship.** TOON has no published formal grammar, so this module is an
-interpretation of prose and must declare what it models — spec version, the
-clauses it corresponds to, and whether it covers the full relevant syntax or a
-subset. Golden outputs cannot detect that the *spec* moved while the module stood
-still, so `selftest-property.ts` compares the module's declared version against
-`SPEC_CURRENT` in `probe/spec-rules.ts` and goes red on a bump. The comparison
-lives in the selftest, not in the module, so `gen/` still imports nothing from
-`probe/`.
+**Spec relationship.** TOON *does* publish normative grammar. SPEC.md v4.1 §6
+carries an RFC 5234 ABNF block defining `header`, `keyed-header`, `bracket-seg`,
+`keyed-seg`, `fields-seg`, `field-entry`, `length`, `delimsym` and `key`; §7.1
+adds a second block for `quoted-char`. So the module models a published grammar
+rather than interpreting prose, and the independence claim for this channel is
+correspondingly stronger. (An earlier revision of this file asserted the
+opposite. It was written without reading §6 and was wrong.)
+
+The coverage is not uniform, so the module declares its basis PER FAMILY rather
+than as one blanket statement:
+
+| Family | Example | Basis |
+|--------|---------|-------|
+| Array header | `[3]:` | §6 ABNF (`header`) |
+| Tabular header | `[2]{a,b}:`, `items[2]{x}:` | §6 ABNF (`header` + `fields-seg`) |
+| Nested field group | `[2]{id,customer{name,country}}:` | §6 ABNF (`field-entry`) |
+| Keyed tabular header | `[2:]{age,city}:` | §6 ABNF (`keyed-header`) |
+| List marker | `- `, `- item`, `  - nested` | §5.2 cl.2, §9.2, §9.4, §10 — prose, precise |
+| Key-value line | `key:`, `key: value` | §5.2 cl.4, §7.4 — prose |
+| Comment / `#`-leading | `# text` | §5.1 — prose, and §7.2's quoting rule |
+
+Four of these are ABNF-derived; three are prose-derived but stated precisely
+enough to generate from. The module records which, because a claim of
+"spec-derived" that quietly spans both would be the kind of overclaim this
+project files against others.
+
+**Three families the operator palette never reaches.** `LOOKALIKE_PAYLOADS` has
+no keyed-tabular token, no `#`-leading string, and no bare `[]`. The last is the
+sharpest: §9.1 makes `[]` an empty array in field position, while §9.3 and §9.5
+make the same two bytes decode as the *string* `[]` inside rows and entry rows. A
+lookalike whose meaning flips by position is exactly the class this channel
+exists to manufacture. The `#` family independently covers the toon#328 class.
+
+**Terminology follows the spec, not our earlier usage.** In §6 and §9.5 a *keyed
+header* is `key[N:<delim?>]{…}:` — the colon after the length marks the keyed
+tabular form. `LOOKALIKE_PAYLOADS` uses "keyed" to mean key-prefixed
+(`items[2]{x}:`), which is a different thing. This module uses the spec's sense
+throughout and says "key-prefixed" for the other. The comment in `operators.ts`
+still carries the old usage and should be corrected when something next touches
+that file.
+
+**Staleness.** Golden outputs cannot detect that the *spec* moved while the
+module stood still, so the module declares the version it models and
+`selftest-property.ts` compares that against `SPEC_CURRENT` in
+`probe/spec-rules.ts`, going red on a bump. The comparison lives in the selftest,
+not in the module, so `gen/` still imports nothing from `probe/`.
+
+**Date skew, confirmed from the primary source.** SPEC.md v4.1's header reads
+`Date: 2026-07-26`; toon's `acc1bed` sets `$spec.date = '2026-07-25'`. Two repos,
+two dates, one version — logged in backlog, not actioned here.
 
 ### Identity, versioning and replay
 
@@ -362,5 +404,8 @@ runtime, and trips on an innocent comment. Obligation 8 is the durable form.
 
 ## Not in this milestone
 
-- **Grammar-directed generation from a machine-readable spec** — TOON publishes
-  no formal grammar; the surface module is a hand-written interpretation of §-text.
+- **Generation driven by the ABNF itself.** §6's grammar is transcribed by hand
+  into productions rather than parsed and interpreted at runtime. A real ABNF
+  interpreter would make the module track the spec automatically instead of via
+  the declared-version tripwire; it is a larger piece of work than v0.4 needs,
+  and backlog 4.5a's deterministic clause extraction is the nearer step.
