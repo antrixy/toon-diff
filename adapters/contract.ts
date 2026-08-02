@@ -113,14 +113,14 @@ export const IMPL_CLAIMS = {
       domain: "f64",
       domainEvidence:
         "adapters/ts.ts ingests via JSON.parse -> JS number (f64); docs/reference/api.md Type Normalization documents BigInt-out-of-range -> quoted decimal string (example literally \"9007199254740993\") but has NO row for a plain number beyond 2^53",
-      decoderPolicy: null,
+      decoderPolicy: "approximate",
       encoderPolicy: null,
       claimsLossless: true,
       policyEvidence:
-        "docs/reference/api.md: decode section, DecodeOptions and the strict-mode list are all silent on out-of-range/precision; \"Round-Trip Compatibility\" affirmatively claims lossless round-trips after normalization, with no numeric-domain caveat",
-      verified: "2026-07-25",
+        "docs/reference/api.md documents the decoder policy in TWO places, from DIFFERENT sources. (1) decode() \"Return Value\": numeric tokens follow IEEE 754 double precision, with a direct link to spec §4 — this is PR #331's entire contribution, verified in the PR diff as a +2-line addition at api.md:343 (merge commit 52653ce). (2) DecodeOptions \"Documented decoder policies\": states the rule three ways — magnitude past the finite double range decodes as a string, underflow decodes as numeric 0, and a value that fits but is not exactly representable decodes as the nearest double. Block (2) is present on main but is NOT from #331; its provenance is UNVERIFIED as of 2026-08-02 and blame on that section is owed — the Jul 25 read recorded DecodeOptions as silent on precision, so either block (2) postdates that read or the read missed it. The THIRD clause of (2) governs 013 (2^53+1 is far inside the finite range), so \"approximate\" is the policy at OUR probed boundary. \"Round-Trip Compatibility\" is UNCHANGED and still promises lossless round-trips after normalization with no numeric caveat",
+      verified: "2026-08-02",
       notes:
-        "the ONLY documented lossless path past 2^53 is via BigInt, which dodges f64 — it does not document the plain-number rounding. #329 (PR \"docs: document decoder number precision\", 29041f5, awaiting maintainer approval) edits this same api.md: on merge set decoderPolicy \"approximate\" + verified, citing the merge commit. DECODER-ONLY — encoderPolicy stays null, so the §3+§2 encoder gap survives the fix",
+        "#329 closed as completed by PR #331 (\"docs: document decoder number precision\", merged 52653ce; commits 29041f5, 26a7755, ad83ebc; api.md only, no runtime change). DECODER-ONLY — encoderPolicy stays null: the Type Normalization table still has no row for a plain number past 2^53, so the §3 host-ingestion mapping is still undocumented and the encoder cell stays violates. The contradiction did not close, it SHARPENED — one file now documents silent rounding and promises lossless round-trips. MODEL LIMIT: OutOfRangePolicy is single-valued but the documented ts policy is three-way (quoted-lossless at overflow, approximate at underflow and at inexact-in-range); \"approximate\" records the clause governing our probe, not the whole policy",
     },
   },
   python: {

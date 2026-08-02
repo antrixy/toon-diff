@@ -99,22 +99,34 @@ ok("rust domain evidence names the serde_json feature choice", IMPL_CLAIMS.rust.
 ok("python domain evidence names its ingestion path", IMPL_CLAIMS.python.numeric.domainEvidence.includes("json.loads"), true);
 
 console.log("Part 5: out-of-range policies (encoder §3+§2 and decoder §4 are INDEPENDENT)");
-// ts is the self-contradiction: no documented policy on either side, while
-// the reference docs affirmatively promise lossless round-trips. That pairing
-// is the finding — silence alone (rust, python) is weaker.
-ok("ts documents no decoder policy (yet)", IMPL_CLAIMS.ts.numeric.decoderPolicy, null);
+// ts WAS the self-contradiction on both sides. PR #331 closed the decoder
+// half only, so the finding did not go away — it sharpened: one file now
+// documents silent rounding AND promises lossless round-trips.
+ok("ts documents an approximate decoder policy (#331)", IMPL_CLAIMS.ts.numeric.decoderPolicy, "approximate");
 ok("ts documents no encoder policy", IMPL_CLAIMS.ts.numeric.encoderPolicy, null);
-ok("ts affirmatively claims losslessness (the contradiction)", IMPL_CLAIMS.ts.numeric.claimsLossless, true);
+ok("ts still affirmatively claims losslessness (the sharpened contradiction)", IMPL_CLAIMS.ts.numeric.claimsLossless, true);
 ok("rust is silent, not self-contradicting", IMPL_CLAIMS.rust.numeric.claimsLossless, false);
 ok("python is silent, not self-contradicting", IMPL_CLAIMS.python.numeric.claimsLossless, false);
-// Promotion tripwire, same shape as rust/#71: while ts's decoder policy is
-// null, its notes must carry the pending #329 docs PR. When #329 merges and
-// decoderPolicy becomes "approximate", this check MUST be updated in the same
-// commit — that is the point.
-ok("ts notes carry the pending #329 docs PR", (IMPL_CLAIMS.ts.numeric.notes ?? "").includes("#329"), true);
-// #329 is DECODER-ONLY: the encoder gap must be recorded as surviving it, or
+// The asymmetry IS the v0.4 thesis in one line: a documented decoder next to
+// an undocumented encoder. The old both-or-neither model could not state it,
+// so it gets its own named check rather than being inferred from the two
+// field checks above.
+ok(
+  "ts decoder is documented while its encoder is not (the per-side split)",
+  IMPL_CLAIMS.ts.numeric.decoderPolicy !== null && IMPL_CLAIMS.ts.numeric.encoderPolicy === null,
+  true,
+);
+// Evidence rule, same discipline the null policies carry: a claim sourced
+// from an upstream MERGE must name the merge commit, in both the notes and
+// the policy evidence. A future reader must not have to trust the date.
+ok("ts notes cite the #331 merge commit", (IMPL_CLAIMS.ts.numeric.notes ?? "").includes("52653ce"), true);
+ok("ts policy evidence cites the #331 merge commit", IMPL_CLAIMS.ts.numeric.policyEvidence.includes("52653ce"), true);
+// #331 is DECODER-ONLY: the encoder gap must be recorded as surviving it, or
 // a merge would silently look like a full fix.
-ok("ts notes record that #329 leaves the encoder gap open", (IMPL_CLAIMS.ts.numeric.notes ?? "").includes("DECODER-ONLY"), true);
+ok("ts notes record that #331 leaves the encoder gap open", (IMPL_CLAIMS.ts.numeric.notes ?? "").includes("DECODER-ONLY"), true);
+// upstream's documented policy is three-way; OutOfRangePolicy holds one value.
+// The gap must be recorded where the claim lives, not left to memory.
+ok("ts notes record the single-valued policy model limit", (IMPL_CLAIMS.ts.numeric.notes ?? "").includes("MODEL LIMIT"), true);
 // The rust u64 boundary is OUR harness model, not upstream policy — the
 // caveat must travel with the claim so it is never filed as a bug.
 ok("rust notes flag the boundary as an adapter artifact", (IMPL_CLAIMS.rust.numeric.notes ?? "").includes("ADAPTER"), true);
@@ -123,7 +135,7 @@ ok("python notes distinguish not-applicable from a docs gap", (IMPL_CLAIMS.pytho
 
 console.log();
 if (fail === 0) {
-  console.log(`IMPL CLAIMS PROVEN: ${pass} checks pass. Claims carry evidence and dates; the adapter-facing shapes derive from the single source; the rust correction is pinned; the three numeric domains are distinct and in-repo evidenced; encoder and decoder policies are recorded independently, with the #71 and #329 promotion tripwires armed.`);
+  console.log(`IMPL CLAIMS PROVEN: ${pass} checks pass. Claims carry evidence and dates; the adapter-facing shapes derive from the single source; the rust correction is pinned; the three numeric domains are distinct and in-repo evidenced; encoder and decoder policies are recorded independently; the #329 tripwire has FIRED and is recorded post-merge as #331, and the #71 tripwire stays armed.`);
 } else {
   console.log(`IMPL CLAIMS FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);
