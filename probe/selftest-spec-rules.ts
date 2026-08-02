@@ -68,12 +68,14 @@ ok("013 rule is judged by numeric domain, not version", ip.verdictKind, "numeric
 ok("002 rule keeps the default version verdicts", ea.verdictKind ?? "version", "version");
 
 // v0.4: the first rule entered from a PROPERTY-LAYER finding rather than from
-// reading the spec. It is deliberately a STUB -- its sections were read from a
-// curled SPEC.md, and this file's 002 note records that fetched spec copies have
-// been observed stale, so it must not be citable until browser-verified.
+// reading the spec. Citable: sections read from an operator-supplied SPEC.md
+// v4.1, not from a fetch. introducedIn stays null -- CHANGELOG.md is a separate
+// file and has not been read -- so the verdicts below are pinned to catch a
+// re-verdicting if it is later set.
 const nk = rules.get("non-ascii-key-quoting")!;
 ok("7.3 rule present", nk !== undefined, true);
-ok("7.3 rule is a stub (sections pending browser verification)", isCitable(nk), false);
+ok("7.3 rule is citable", isCitable(nk), true);
+ok("7.3 rule cites three sections (7.1, 7.3, 16)", nk.sections.length, 3);
 ok("7.3 rule constrains the ENCODER only (\u00a77.4 makes decoders permissive)", nk.appliesTo, "encoder");
 ok("7.3 rule refs its rust filing", (nk.refs ?? []).some((r) => r.includes("toon-rust/issues/77")), true);
 ok("7.3 rule refs its python filing", (nk.refs ?? []).some((r) => r.includes("toon-python/issues/65")), true);
