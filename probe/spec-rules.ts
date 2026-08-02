@@ -115,11 +115,12 @@ export const SPEC_RULES: SpecRule[] = [
     title:
       "object keys, entry keys and tabular field names that fall outside the ASCII unquoted-key pattern MUST be quoted and escaped; the pattern is ASCII-only, so a non-ASCII character ANYWHERE in a key requires quoting",
     sections: ["7.1", "7.3", "16"],
-    introducedIn: null,
-    changelog: null,
+    introducedIn: "1.4",
+    changelog: "[1.4] 2025-11-05",
     appliesTo: "encoder",
     refs: [
       "https://github.com/toon-format/spec/blob/main/SPEC.md",
+      "https://github.com/toon-format/spec/blob/main/CHANGELOG.md",
       "https://github.com/toon-format/toon-rust/issues/77",
       "https://github.com/toon-format/toon-python/issues/65",
     ],
@@ -128,7 +129,8 @@ export const SPEC_RULES: SpecRule[] = [
       "SECTIONS: \u00a77.3 carries the rule and names all three surfaces itself (object keys, entry keys per \u00a79.5, and field names in a header field list); \u00a77.1 is the escaping the MUST defers to; \u00a716 states the consequence outright, that the pattern is ASCII-only so conforming encoders quote every non-ASCII key. Read from the operator-supplied SPEC.md v4.1 (header Date: 2026-07-26), not from a Claude fetch. \u00a716's explicit statement is v4.1 wording; at v3.0 the requirement rests on \u00a77.3 alone, where the pattern and MUST are textually identical. " +
       "EVIDENCE (reproduced against published releases, not through our adapters for rust): ts @toon-format/toon 2.3.0 quotes correctly in every position; toon-format 0.5.0 (rust) quotes NO non-ASCII key in any position, though it does quote non-matching ASCII such as \"a-b\" — a reject-list check where an accept-list is required; toon_format 0.9.0b1 (python) quotes only when the non-ASCII character is at index 0, identical for BMP and CJK, so the head class is checked correctly and the tail is not. " +
       "PER-SIDE, AND THIS IS THE POINT: appliesTo is encoder because §7.4 requires DECODERS to accept any unquoted key token as a literal key, even one an encoder is forbidden to emit. All three decoders are conformant here by design; only the encoder cell moves. Second independent instance of the thesis-D per-side argument after the toon#331 decoder-only move — and the first this project produced rather than observed. " +
-      "introducedIn NULL IS AN APPROXIMATION AND THIS RULE IS NOT FULLY VERIFIED: present and textually identical at v3.0 and v4.1, but CHANGELOG.md is a separate file (\u00a718) that has not been read, so the true introduction point is unknown. Null happens to yield the right verdicts today (rust claims 3.0 -> violates-claimed; python claims nothing -> violates-current), but an implementation claiming something older than the real introduction version would be mis-verdicted. Set introducedIn + changelog once the CHANGELOG is browser-read.",
+      "INTRODUCED AT 1.4, AND THE CHANGELOG EXPLAINS THE BUG. [1.4] 2025-11-05 records: replaced \\w with explicit [A-Za-z0-9_] in key regexes for cross-language clarity (\u00a77.3). So the pattern predates 1.4, but only from 1.4 is it unambiguously ASCII: before it, \\w read through a Unicode-aware regex engine matched non-ASCII, which is exactly the cross-language ambiguity that change removed. An implementation claiming < 1.4 is BEHIND this rule, not violating it -- the 002 lesson, with a citation rather than an assumption. " +
+      "PYTHON'S MECHANISM IS THE PRE-1.4 REGEX, confirmed rather than guessed: ^[A-Za-z_]\\w*$ under Python's re (where \\w is Unicode-aware by default) reproduces all nine observed cases exactly, including _\u00e9 unquoted and identical BMP/CJK behaviour. The explicit head class rejects a leading non-ASCII char; \\w accepts it anywhere after. Recorded on toon-python#65. Verdicts are unaffected: rust claims 3.0 (>= 1.4) -> violates-claimed; python claims nothing -> violates-current.",
   },
 ];
 

@@ -68,10 +68,10 @@ ok("013 rule is judged by numeric domain, not version", ip.verdictKind, "numeric
 ok("002 rule keeps the default version verdicts", ea.verdictKind ?? "version", "version");
 
 // v0.4: the first rule entered from a PROPERTY-LAYER finding rather than from
-// reading the spec. Citable: sections read from an operator-supplied SPEC.md
-// v4.1, not from a fetch. introducedIn stays null -- CHANGELOG.md is a separate
-// file and has not been read -- so the verdicts below are pinned to catch a
-// re-verdicting if it is later set.
+// reading the spec. introducedIn is 1.4 because CHANGELOG [1.4] replaced \w with
+// explicit [A-Za-z0-9_] in the key regexes "for cross-language clarity" -- before
+// that, \w under a Unicode-aware engine matched non-ASCII, so a pre-1.4 claim is
+// a defensible reading and the 002 behind/violates split applies with a citation.
 const nk = rules.get("non-ascii-key-quoting")!;
 ok("7.3 rule present", nk !== undefined, true);
 ok("7.3 rule is citable", isCitable(nk), true);
@@ -79,7 +79,11 @@ ok("7.3 rule cites three sections (7.1, 7.3, 16)", nk.sections.length, 3);
 ok("7.3 rule constrains the ENCODER only (\u00a77.4 makes decoders permissive)", nk.appliesTo, "encoder");
 ok("7.3 rule refs its rust filing", (nk.refs ?? []).some((r) => r.includes("toon-rust/issues/77")), true);
 ok("7.3 rule refs its python filing", (nk.refs ?? []).some((r) => r.includes("toon-python/issues/65")), true);
-ok("7.3 rule cites no CHANGELOG (introducedIn unverified)", nk.changelog, null);
+ok("7.3 rule introduced at 1.4 (\\w -> explicit ASCII in key regexes)", nk.introducedIn, "1.4");
+ok("7.3 rule cites its CHANGELOG entry", nk.changelog, "[1.4] 2025-11-05");
+// The pre-1.4 wording is why an implementation claiming older is BEHIND, not
+// violating: \w through a Unicode-aware engine matched non-ASCII.
+ok("7.3 verdict for an impl claiming 1.3", specVerdict("1.3", nk), "behind");
 // The two verdicts this rule actually produces today, pinned so a change in
 // introducedIn cannot silently re-verdict the filed findings.
 ok("7.3 verdict for rust (claims 3.0)", specVerdict("3.0", nk), "violates-claimed");
