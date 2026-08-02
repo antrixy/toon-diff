@@ -95,6 +95,9 @@ the bucket directory plus that prose line. Earlier text in this file, in
   imported by `property.ts`'s `surface-toon` channel and by nothing else.
 - `selftest-emit.ts`, `selftest-operators.ts`, `selftest-property.ts` — proofs,
   judged by the oracle.
+- `selftest-cli-write.ts` — proves the `write` batch path: flat filenames,
+  determinism, and replay of every manifest line to its written bytes. Spawns
+  the real CLI rather than importing it.
 
 ## Run
 
@@ -102,37 +105,40 @@ the bucket directory plus that prose line. Earlier text in this file, in
 # proofs (no external deps — the oracle is pure):
 node --experimental-strip-types gen/selftest-emit.ts
 node --experimental-strip-types gen/selftest-operators.ts
+node --experimental-strip-types gen/selftest-cli-write.ts
 node --experimental-strip-types gen/selftest-property.ts
 
 # see / persist generated cases (no adapters needed):
 node --experimental-strip-types gen/cli.ts preview --per 3
-node --experimental-strip-types gen/cli.ts write   --per 20   # BROKEN, see below
+node --experimental-strip-types gen/cli.ts write   --per 20   # -> probe/generated/ (scratch)
 
 # fuzz the matrix (full env: TOON impls installed):
 node --experimental-strip-types gen/fuzz.ts --per 200
 ```
 
-## Known defects in the write path (v0.3 regressions, unfixed)
+## The write path: one defect fixed, two deliberate
 
-Recorded here rather than left to be rediscovered. `preview`, `fuzz` and the
-selftests are unaffected — all three defects are confined to `cli.ts write`.
+`write` persists a batch to gitignored scratch. It is **not** a corpus promotion
+path, and never was.
 
-- **`write` crashes on the first case.** `seed.name` is the corpus `key`, which
-  became bucket-prefixed in v0.3 (`seeds/001-empty-object.json`). `mkdirSync`
-  creates only the out dir, not the `seeds/` subdir that slash implies, so the
-  first `writeFileSync` fails with ENOENT. Never caught because `write` has no
-  selftest.
-- **The naming scheme collides with the corpus loader.** `NNN-name-gNNNN.json`
-  reuses the seed's three-digit id, and `loadCorpus` enforces per-bucket unique
-  ids all-or-nothing. Twenty mutations of seed 010 would refuse the whole corpus.
-  Generated-case id allocation is unspecified and is a prerequisite for any
-  promotion.
-- **`provenance.jsonl` is write-only.** Nothing reads it: `fuzz.ts` generates in
-  memory and `shrink-cli.ts --batch` reads a fuzz *output* file. It is a second
-  metadata format that the `.meta.json` sidecar superseded.
-
-`probe/generated/` is gitignored, so `write` output is scratch. It is not, and
-was never, a corpus promotion path.
+- **FIXED — `write` crashed on the first case.** `seed.name` was the corpus
+  `key`, which became bucket-prefixed in v0.3 (`seeds/001-empty-object.json`);
+  `mkdirSync` created only the out dir, not the `seeds/` subdir that slash
+  implies, so the first `writeFileSync` failed with ENOENT. The repair carries
+  the loader's already-parsed `id` and `name` alongside `key`, so the replay
+  identity and the output filename stop sharing a field. Covered by
+  `selftest-cli-write.ts`, which spawns the real CLI — the defect lived in the
+  entry point, so an in-process test of an imported function would not have
+  caught it.
+- **BY DESIGN — filenames are not corpus-legal.** `NNN-name-gNNNN.json` reuses
+  the seed's three-digit id, and `loadCorpus` enforces per-bucket unique ids
+  all-or-nothing. Scratch output does not need corpus-legal ids; the promotion
+  command owns allocation, for both generators, once it exists.
+- **OPEN — `provenance.jsonl` is write-only.** Nothing reads it: `fuzz.ts`
+  generates in memory and `shrink-cli.ts --batch` reads a fuzz *output* file. It
+  is a second metadata format that the `.meta.json` sidecar superseded. Retire it
+  or give it a reader; the selftest currently pins it as a batch manifest whose
+  `(seed, rngSeed, maxOps)` lines replay byte-for-byte.
 
 ## Shrinker (gen/shrink.ts, failure-signature.ts, shrink-cli.ts)
 
@@ -304,7 +310,8 @@ recipes, which depend on `operators.ts` never changing.
 
 ### Proof obligations for `selftest-property.ts`
 
-Twelfth pure selftest — a deliberate count move, named in the commit body.
+Thirteenth pure selftest — a deliberate count move, named in the commit body.
+(`selftest-cli-write.ts` took twelfth.)
 
 1. **Deterministic construction** — version, channel, seed and size reproduce
    identical value, text and metadata.
