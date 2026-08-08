@@ -8,17 +8,42 @@ From the project root (the folder this file is in):
      source .venv/bin/activate
 2) Make sure the project is ESM:
      npm pkg set type=module
-3) Prove the oracle (no external deps needed):
-     node --experimental-strip-types oracle/selftest-numbers.ts
-   Expect: "V2 ORACLE PROVEN: all checks pass."
-3b) Prove the corpus loader (v0.3 — no external deps needed):
-     node --experimental-strip-types probe/selftest-corpus.ts
-   Expect: "CORPUS LOADER PROVEN: ..." The corpus now lives in provenance
-   buckets under probe/cases/{seeds,spec,regressions,generated,community}/,
+3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
+   Fourteen files, 595 checks. Run all of them; the counts are promotion
+   tripwires, so a moved number is a deliberate act or a regression.
+
+     node --experimental-strip-types oracle/selftest.ts                #  18
+     node --experimental-strip-types oracle/selftest-numbers.ts        #  37
+     node --experimental-strip-types gen/selftest-emit.ts              #  31
+     node --experimental-strip-types gen/selftest-operators.ts         #  30
+     node --experimental-strip-types gen/selftest-shrink.ts            #  20
+     node --experimental-strip-types gen/selftest-property.ts          #  45
+     node --experimental-strip-types gen/selftest-cli-write.ts         #  20
+     node --experimental-strip-types gen/selftest-run-manifest.ts      #  71
+     node --experimental-strip-types probe/selftest-corpus.ts          #  37
+     node --experimental-strip-types probe/selftest-grid.ts            #  40
+     node --experimental-strip-types probe/selftest-explain.ts         #  48
+     node --experimental-strip-types probe/selftest-numeric-domain.ts  #  53
+     node --experimental-strip-types probe/selftest-spec-rules.ts      #  83
+     node --experimental-strip-types adapters/selftest-claims.ts       #  62
+
+   Each ends "... PROVEN ...". Any adapters/ commit runs the FULL suite, not
+   just the touched directory's selftest — probe/ imports IMPL_CLAIMS, so an
+   adapters/ change can turn probe/ red without touching a probe/ file.
+
+3b) NOTE ON THE CORPUS (probe/selftest-corpus.ts, above). The corpus lives in
+   provenance buckets under probe/cases/{seeds,spec,regressions,generated,community}/,
    each case as NNN-name.json + NNN-name.meta.json (origin + invariant).
    The mutation substrate is seeds/ only. Fuzz recipes name seeds by corpus
    key ("seeds/NNN-name.json"); replay-case also accepts pre-v0.3 flat names
    from archived sweep baselines.
+
+3c) Re-run the mutation pass when gen/run-manifest.ts changes. It works on
+   scratch copies and never touches the tree:
+     python3 gen/mutate-run-manifest.py
+   Expect: "MUTATION PASS CLEAN: all 14 mutations killed". A SURVIVED line is a
+   hole in gen/selftest-run-manifest.ts, not a harmless edit.
+
 4) Run the differential matrix:
      node --experimental-strip-types cli-v2.ts
 
@@ -33,17 +58,30 @@ The generator turns the 13 seeds into inputs nobody wrote, along documented faul
 lines (flat/wide objects, large tables, boundary integers, delimiter strings).
 See gen/DESIGN.md for the operator set and the non-corruption invariant.
 
-Prove the generator (no external deps — judged by the oracle, so runs anywhere):
-     node --experimental-strip-types gen/selftest-emit.ts        # substrate never corrupts a case
-     node --experimental-strip-types gen/selftest-operators.ts   # operators + determinism + coverage
-   Expect both to end "... PROVEN ...".
+Prove the generator: covered by the pure suite in step 3 (selftest-emit,
+selftest-operators, selftest-shrink, selftest-property, selftest-cli-write).
 
 See / persist generated cases (no TOON impls needed):
      node --experimental-strip-types gen/cli.ts preview --per 3
      node --experimental-strip-types gen/cli.ts write   --per 20   # -> probe/generated/{cases}.json + provenance.jsonl
 
 Fuzz the differential matrix (FULL ENV — needs the TOON impls installed, same as
-the Rust adapter track):
-     node --experimental-strip-types gen/fuzz.ts --per 200
+the Rust adapter track). ACTIVATE THE VENV FIRST; the first property run was
+wasted on a dead python worker:
+     node --experimental-strip-types gen/fuzz.ts --per 200                 # mutation cases
+     node --experimental-strip-types gen/fuzz.ts --mode prop --size 40     # property cases
+
+Every run ends with a RUN MANIFEST and one of five verdicts. READ THE VERDICT,
+not the finding count:
+     RAN-CLEAN     exit 0   ran as planned, nothing diverged
+     RAN-FOUND     exit 1   ran as planned, divergences or errors
+     DID-NOT-RUN   exit 3   the plan generated no cases (check numeric args)
+     HARNESS-DEAD  exit 3   an adapter failed its canary (check the venv)
+     INCOMPLETE    exit 3   generated fewer cases than planned, uncapped
+
+Exit 3 is not a result. Exit 0 means the run happened and was clean, never that
+it did not happen.
+
    Each divergence prints its recipe and a replay command. Reproduce any case:
      node --experimental-strip-types gen/replay-case.ts <seedFile> <rngSeed> [maxOps]
+     node --experimental-strip-types gen/replay-case.ts "prop:v1/general@1000003/40"
