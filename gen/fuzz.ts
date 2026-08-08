@@ -44,6 +44,12 @@ import { generateCase } from "./generate.ts";
 import type { Provenance } from "./generate.ts";
 import { CHANNELS, CONFIG, eligibleChannels, generateProperty } from "./property.ts";
 import type { Channel } from "./property.ts";
+import {
+  AdapterHealth, CANARY_JSON, EXIT, emptyTally, exitCodeFor, failedCanaries,
+  legacyFindings, legacyLine, planProblems, recordDivergence, recordError,
+  recordOk, renderManifest,
+} from "./run-manifest.ts";
+import type { CanaryResult, Plan, RunState } from "./run-manifest.ts";
 
 const adapters: Adapter[] = [tsAdapter, pythonAdapterPersistent, rustAdapterPersistent];
 
@@ -168,12 +174,80 @@ function printFinding(
   console.log(`  replay:   ${c.replay}\n`);
 }
 
+const plan: Plan = {
+  mode,
+  casesPlanned: totalCases,
+  adapters: adapters.map((a) => a.name),
+  params: mode === "prop"
+    ? { per, size, channels: propChannels.join("+") || "(none)", seed: baseSeed }
+    : { per, maxOps, seeds: seeds.length, seed: baseSeed },
+};
+
+const msgOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 const main = async () => {
-  let findings = 0, checks = 0, cases = 0, malformed = 0;
+  const tally = emptyTally();
+  const health = new AdapterHealth();
+  const state: RunState = { plan, tally };
+  /** The pre-split finding count, which is what --max-findings has always capped. */
+  const legacyCount = () => legacyFindings(tally);
   const startedAt = Date.now();
   const heartbeat = () => {
     const secs = ((Date.now() - startedAt) / 1000).toFixed(0);
-    process.stderr.write(`… ${cases}/${totalCases} cases, ${findings} findings, ${secs}s\n`);
+    process.stderr.write(
+      `… ${tally.casesGenerated}/${totalCases} cases, ${tally.divergences} divergences, ` +
+      `${tally.errors} errors, ${secs}s\n`,
+    );
+  };
+
+  // LIVENESS GATE. A plan that cannot generate anything is a configuration
+  // error, and it is caught HERE -- before the loop -- so the run refuses to
+  // start rather than reporting a sweep it never performed. Previously
+  // `--size 0`, `--per 0` and any non-numeric argument printed NO DIVERGENCES
+  // and exited 0, which is indistinguishable from a clean sweep.
+  if (planProblems(plan).length > 0) {
+    console.log(renderManifest(state));
+    process.exit(EXIT.UNTRUSTWORTHY);
+  }
+
+  // CANARY PREFLIGHT. Three calls against a fixed trivial value. An adapter that
+  // cannot round-trip {"a":1} is dead, and every "finding" it would go on to
+  // produce is one environment error repeated -- the shape that wasted the first
+  // property run, where ~35 of 50 findings were a dead python worker.
+  const canaries: CanaryResult[] = [];
+  for (const a of adapters) {
+    try {
+      const back = await a.decode(await a.encode(CANARY_JSON));
+      const ok = equal(ingest(back), ingest(CANARY_JSON));
+      canaries.push({ adapter: a.name, ok, error: ok ? undefined : `canary returned ${back}` });
+    } catch (e) {
+      canaries.push({ adapter: a.name, ok: false, error: msgOf(e) });
+    }
+  }
+  const deadOnArrival = failedCanaries(canaries);
+  if (deadOnArrival.length > 0) {
+    tally.quarantined.push(...deadOnArrival);
+    for (const c of canaries) if (!c.ok) recordError(tally, c.adapter, c.adapter, `canary: ${c.error}`);
+    console.log(renderManifest(state));
+    shutdownPython();
+    shutdownRust();
+    process.exit(EXIT.UNTRUSTWORTHY);
+  }
+  console.log(`canary: ${adapters.map((a) => `${a.name}=ok`).join("  ")}`);
+
+  /** Spend a canary call only when consecutive errors say it is worth one. */
+  const recanary = async (a: Adapter): Promise<void> => {
+    if (!health.shouldRecanary(a.name)) return;
+    try {
+      const back = await a.decode(await a.encode(CANARY_JSON));
+      const ok = equal(ingest(back), ingest(CANARY_JSON));
+      health.noteCanary(a.name, ok);
+      if (!ok) process.stderr.write(`! ${a.name} failed its re-canary; quarantined\n`);
+    } catch (e) {
+      health.noteCanary(a.name, false);
+      process.stderr.write(`! ${a.name} died mid-run (${msgOf(e)}); quarantined\n`);
+    }
+    if (health.isDead(a.name) && !tally.quarantined.includes(a.name)) tally.quarantined.push(a.name);
   };
 
   console.log(mode === "prop"
@@ -184,8 +258,8 @@ const main = async () => {
 
   outer:
   for (const c of source()) {
-    cases++;
-    if (cases % progressEvery === 0) heartbeat();
+    tally.casesGenerated++;
+    if (tally.casesGenerated % progressEvery === 0) heartbeat();
     // The generator is supposed to emit valid JSON. If it ever doesn't, that's a
     // bug in THIS tool, not a finding about TOON -- so record it (on stderr, with
     // a replay command) and skip the case. Never abort a multi-thousand-case sweep
@@ -193,42 +267,64 @@ const main = async () => {
     let expected;
     try {
       expected = ingest(c.text); // lossless; exact lexeme preserved
+      tally.casesIngested++;
     } catch (e) {
-      malformed++;
+      tally.generatorMalformed++;
       process.stderr.write(
         `! generator emitted invalid JSON  ${c.label}\n` +
         `  recipe: ${c.recipe}\n` +
-        `  ${e instanceof Error ? e.message.split("\n")[0] : String(e)}\n` +
+        `  ${msgOf(e).split("\n")[0]}\n` +
         `  replay: ${c.replay}\n`,
       );
       continue;
     }
     for (const X of adapters) {
+      if (health.isDead(X.name)) continue;
       for (const Y of adapters) {
-        checks++;
+        if (health.isDead(Y.name)) continue;
+
+        // Encode and decode are awaited SEPARATELY so a failure is attributed to
+        // the side that actually threw. Attribution is what makes the health
+        // tracker meaningful: a combined await blames both adapters for one
+        // adapter's death and quarantines nobody.
+        let encoded: string;
         try {
-          const back = await Y.decode(await X.encode(c.text));
-          if (!equal(ingest(back), expected)) {
-            findings++;
+          encoded = await X.encode(c.text);
+        } catch (e) {
+          recordError(tally, X.name, Y.name, msgOf(e));
+          printFinding(c, X.name, Y.name, "", msgOf(e), skewNote(X, Y));
+          health.noteError(X.name);
+          await recanary(X);
+          if (legacyCount() >= maxFindings) { tally.capped = true; break outer; }
+          continue;
+        }
+        try {
+          const back = await Y.decode(encoded);
+          if (equal(ingest(back), expected)) {
+            recordOk(tally);
+          } else {
+            recordDivergence(tally, X.name, Y.name);
             printFinding(c, X.name, Y.name, back, undefined, skewNote(X, Y));
           }
+          health.noteOk(X.name);
+          health.noteOk(Y.name);
         } catch (e) {
-          findings++;
-          printFinding(c, X.name, Y.name, "", e instanceof Error ? e.message : String(e), skewNote(X, Y));
+          recordError(tally, X.name, Y.name, msgOf(e));
+          printFinding(c, X.name, Y.name, "", msgOf(e), skewNote(X, Y));
+          health.noteError(Y.name);
+          await recanary(Y);
         }
-        if (findings >= maxFindings) break outer;
+        if (legacyCount() >= maxFindings) { tally.capped = true; break outer; }
       }
     }
   }
 
   heartbeat();
-  console.log(`\n${findings === 0 ? "NO DIVERGENCES" : `DIVERGENCES: ${findings}`}` +
-    ` | cases: ${cases}/${totalCases} | pair-checks: ${checks}` +
-    ` | generator-malformed: ${malformed}` +
-    (findings >= maxFindings ? " | (capped)" : ""));
+  console.log(`\n${legacyLine(state)}`);
+  console.log(renderManifest(state));
   shutdownPython();
   shutdownRust();
-  process.exit(findings === 0 ? 0 : 1);
+  process.exit(exitCodeFor(state));
 };
 
 main();
