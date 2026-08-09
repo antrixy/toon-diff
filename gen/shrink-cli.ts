@@ -10,6 +10,7 @@
 //   node --experimental-strip-types gen/shrink-cli.ts --seed 002-empty-array.json --rng 1010088 [--maxops 3]
 //   node --experimental-strip-types gen/shrink-cli.ts --file some-case.json
 //   node --experimental-strip-types gen/shrink-cli.ts --json '{"unsafe":9007199254740993}'
+//   node --experimental-strip-types gen/shrink-cli.ts --recipe "prop:v1/general@1059844/40"
 //
 // Batch (collapse a whole run to one minimal case per distinct failure signature):
 //   node --experimental-strip-types gen/shrink-cli.ts --batch fuzz-out.txt [--limit 40]
@@ -21,6 +22,9 @@ import { tsAdapter } from "../adapters/ts.ts";
 import { pythonAdapterPersistent, shutdownPython } from "../adapters/python-persistent.ts";
 import { rustAdapterPersistent, shutdownRust } from "../adapters/rust-persistent.ts";
 import { generateCase } from "./generate.ts";
+import { dedupeFindings, parseFindingLog, refusalReport, splitByVersion } from "./finding-log.ts";
+import type { Finding } from "./finding-log.ts";
+import { PROPERTY_GEN_VERSION, parseIdentity, replayProperty } from "./property.ts";
 import { shrink } from "./shrink.ts";
 import { captureSignatures, makeInteresting } from "./failure-signature.ts";
 import type { Signature } from "./failure-signature.ts";
@@ -61,40 +65,51 @@ async function shrinkOne(caseText: string, label: string): Promise<void> {
   console.log(`     reproduces: ${finalSigs.map((s) => s.fp).join(", ") || "none"}`);
 }
 
-// Parse a fuzz-out.txt into (seed, rngSeed, maxOps) finding coordinates.
-function parseFindings(path: string): { seed: string; rng: number; maxOps: number; from: string; to: string; ops: string }[] {
-  const lines = readFileSync(path, "utf8").split("\n");
-  const out: { seed: string; rng: number; maxOps: number; from: string; to: string; ops: string }[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(/^(ts|python|rust) → (ts|python|rust)\s+✗\s+seed=(\S+) rngSeed=(\d+) maxOps=(\d+)/);
-    if (!m) continue;
-    let ops = "";
-    const rm = (lines[i + 1] || "").match(/^\s*recipe:\s*(.*)$/);
-    if (rm) ops = rm[1].replace(/\([^)]*\)/g, "").trim();
-    out.push({ from: m[1], to: m[2], seed: m[3], rng: parseInt(m[4], 10), maxOps: parseInt(m[5], 10), ops });
-  }
-  return out;
+/**
+ * Resolve a finding record to the exact case bytes the fuzz run tested.
+ *
+ * Both generators are pure over their identity, so this reproduces the tested
+ * bytes rather than something similar to them. A property recipe from another
+ * generator version never reaches here: splitByVersion refuses it upstream, out
+ * loud, because replaying it would produce DIFFERENT bytes under the same name.
+ */
+function caseTextOf(f: Finding): string {
+  if (f.kind === "property") return replayProperty(f.recipe)!.text;
+  return generateCase(readSeed(f.seed), f.rng, { seedName: f.seed, maxOps: f.maxOps }).text;
 }
+
+const labelOf = (f: Finding): string =>
+  f.kind === "property" ? f.recipe : `seed=${f.seed} rng=${f.rng} maxOps=${f.maxOps}`;
 
 const main = async () => {
   try {
     const batch = opt("batch");
     if (batch) {
       const limit = parseInt(opt("limit") ?? "40", 10);
-      const findings = parseFindings(batch);
-      // Cheap pre-dedup: one representative per (from,to,ops-set) — cuts thousands to dozens.
-      const groups = new Map<string, { seed: string; rng: number; maxOps: number }>();
-      for (const f of findings) {
-        const key = `${f.from}->${f.to}|${f.seed}|${f.ops}`;
-        if (!groups.has(key)) groups.set(key, { seed: f.seed, rng: f.rng, maxOps: f.maxOps });
-      }
-      const reps = [...groups.values()].slice(0, limit);
-      console.log(`batch: ${findings.length} findings -> ${groups.size} candidate groups; shrinking ${reps.length} (limit ${limit})`);
+      const findings = parseFindingLog(readFileSync(batch, "utf8"));
+
+      // Stale property recipes are refused OUT LOUD before anything is shrunk.
+      // After a PROPERTY_GEN_VERSION bump an old log is entirely stale, and a
+      // silent skip would render that as "0 findings" -- indistinguishable from a
+      // clean run, which is the did-not-run collapse one layer down.
+      const split = splitByVersion(findings, PROPERTY_GEN_VERSION);
+      for (const line of refusalReport(split, PROPERTY_GEN_VERSION)) console.log(line);
+      const replayable = findings.filter(
+        (f) => f.kind !== "property" || f.identity.version === PROPERTY_GEN_VERSION,
+      );
+
+      const reps = dedupeFindings(replayable).slice(0, limit);
+      const nProp = reps.filter((f) => f.kind === "property").length;
+      console.log(
+        `batch: ${findings.length} findings -> ${dedupeFindings(replayable).length} distinct case(s)` +
+        `; shrinking ${reps.length} (limit ${limit})` +
+        ` [${nProp} property, ${reps.length - nProp} mutation]`,
+      );
+
       // Shrink each; dedup final minimal cases by their text so identical minimals collapse.
       const seenMinimal = new Set<string>();
       for (const rep of reps) {
-        const seedText = readSeed(rep.seed);
-        const caseText = generateCase(seedText, rep.rng, { seedName: rep.seed, maxOps: rep.maxOps }).text;
+        const caseText = caseTextOf(rep);
         const targets = await captureSignatures(caseText, adapters);
         if (targets.length === 0) continue;
         const interesting = makeInteresting(targets, adapters);
@@ -103,9 +118,22 @@ const main = async () => {
         seenMinimal.add(r.text);
         const finalSigs = await captureSignatures(r.text, adapters);
         console.log(`\n${r.text}`);
-        console.log(`   from seed=${rep.seed} rng=${rep.rng}  |  ${finalSigs.map(sigLine).join(" ; ")}`);
+        console.log(`   from ${labelOf(rep)}  |  ${finalSigs.map(sigLine).join(" ; ")}`);
       }
       console.log(`\n${seenMinimal.size} DISTINCT minimal reproducer(s).`);
+    } else if (opt("recipe")) {
+      const recipe = opt("recipe")!;
+      const id = parseIdentity(recipe);
+      if (!id) { console.error(`unparseable property recipe: ${recipe}`); process.exitCode = 2; }
+      else if (id.version !== PROPERTY_GEN_VERSION) {
+        console.error(
+          `recipe targets generator v${id.version}, this build is v${PROPERTY_GEN_VERSION}.\n` +
+          `The grammar is part of a case's identity, so these bytes would not match. ` +
+          `Use the stored case file, which is authoritative.`);
+        process.exitCode = 3;
+      } else {
+        await shrinkOne(replayProperty(recipe)!.text, recipe);
+      }
     } else if (opt("file")) {
       await shrinkOne(readFileSync(opt("file")!, "utf8").trim(), `file: ${opt("file")}`);
     } else if (opt("json")) {
@@ -116,7 +144,7 @@ const main = async () => {
       const caseText = generateCase(seedText, rng, { seedName: seed, maxOps }).text;
       await shrinkOne(caseText, `seed=${seed} rng=${rng} maxOps=${maxOps}`);
     } else {
-      console.error("usage: --seed <file> --rng <n> [--maxops 3] | --file <p> | --json <t> | --batch <fuzz-out.txt> [--limit 40]");
+      console.error("usage: --seed <file> --rng <n> [--maxops 3] | --recipe \"prop:vN/ch@seed/size\" | --file <p> | --json <t> | --batch <fuzz-out.txt> [--limit 40]");
       process.exitCode = 2;
     }
   } finally {
