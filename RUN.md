@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Fifteen files, 652 checks. Run all of them; the counts are promotion
+   Fifteen files, 655 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -20,7 +20,7 @@ From the project root (the folder this file is in):
      node --experimental-strip-types gen/selftest-property.ts          #  45
      node --experimental-strip-types gen/selftest-cli-write.ts         #  20
      node --experimental-strip-types gen/selftest-run-manifest.ts      #  90
-     node --experimental-strip-types gen/selftest-finding-log.ts       #  38
+     node --experimental-strip-types gen/selftest-finding-log.ts       #  41
      node --experimental-strip-types probe/selftest-corpus.ts          #  37
      node --experimental-strip-types probe/selftest-grid.ts            #  40
      node --experimental-strip-types probe/selftest-explain.ts         #  48
@@ -43,7 +43,7 @@ From the project root (the folder this file is in):
    module changes. Both work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 20 mutations killed
-     python3 gen/mutate-finding-log.py    # all 13 mutations killed
+     python3 gen/mutate-finding-log.py    # all 14 mutations killed
 
    A SURVIVED line is a hole in the corresponding selftest, not a harmless edit.
    A SKIPPED line means a mutation's anchor text no longer exists in the module,
