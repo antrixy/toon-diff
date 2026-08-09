@@ -49,6 +49,30 @@ MUTATIONS = [
      "  const params = Object.fromEntries(Object.keys(p.params).sort().map((k) => [k, p.params[k]]));",
      "  const params = Object.fromEntries(Object.keys(p.params).map((k) => [k, p.params[k]]));"),
 
+    ("M15 divergence grouping dropped (the bare-counter defect)",
+     "  const sig = divergenceSignature(fingerprint);\n  t.divergenceSignatures.set(sig, (t.divergenceSignatures.get(sig) ?? 0) + 1);",
+     "  void fingerprint;"),
+
+    ("M16 every divergence collapsed to one constant signature",
+     "  const sig = divergenceSignature(fingerprint);",
+     "  const sig = \"divergence\";"),
+
+    ("M17 oracle disagreement bucketed as a divergence class",
+     '  if (fingerprint === "none") {\n    t.oracleDisagreements++;\n    return;\n  }',
+     "  // oracle disagreement no longer separated"),
+
+    ("M18 errorSignature reverted to first-line-only (the python defect)",
+     "  let pick = lines[0] ?? \"\";\n  for (let i = lines.length - 1; i >= 0; i--) {\n    const l = lines[i];\n    if (l.trim() === \"\" || FRAME_RE.test(l)) continue;\n    pick = l;\n    break;\n  }",
+     "  const pick = lines[0] ?? \"\";"),
+
+    ("M19 errorSignature takes the last non-empty line (the WRONG fix)",
+     '    if (l.trim() === "" || FRAME_RE.test(l)) continue;',
+     '    if (l.trim() === "") continue;'),
+
+    ("M20 divergence signature length cap removed",
+     "  return fingerprint.replace(/\\s+/g, \" \").trim().slice(0, 120);",
+     "  return fingerprint.replace(/\\s+/g, \" \").trim();"),
+
     ("M10 consecutive-error count allowed to quarantine on its own",
      "    if (ok) this.consecutive.set(adapter, 0);\n    else this.dead.add(adapter);",
      "    this.dead.add(adapter);"),

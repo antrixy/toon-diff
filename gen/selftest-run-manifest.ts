@@ -19,6 +19,7 @@
 import {
   AdapterHealth, CANARY_JSON, EXIT, EXIT_FOR, RECANARY_AFTER, VERDICT_RULES,
   classify, emptyTally, errorSignature, exitCodeFor, failedCanaries,
+  divergenceSignature,
   legacyFindings, legacyLine, planDigest, planProblems, recordDivergence,
   recordError, recordOk, renderManifest,
 } from "./run-manifest.ts";
@@ -137,8 +138,21 @@ const healthy = (t: Partial<Tally> = {}): RunState => state({}, {
     errorSignature("row 47 failed") === errorSignature("row 9931 failed"));
   check("error signatures keep quoted detail",
     errorSignature("No module named 'toon_format'") !== errorSignature("No module named 'orjson'"));
-  check("error signatures take the first line only",
+  // WHICH LINE. Three checks, because the rule has to survive BOTH failure modes:
+  // first-line-only loses python, last-non-empty loses Node. The old check here was
+  // named "take the first line only" and pinned the defect as if it were the rule.
+  check("a Node error keeps its message line, not its last frame",
     errorSignature("boom\n  at frame one\n  at frame two") === "boom");
+  check("a python traceback keeps its exception line, not its header",
+    errorSignature("Traceback (most recent call last):\n  File \"a.py\", line 3\nValueError: bad key")
+      === "ValueError: bad key");
+  check("two different python exceptions do NOT group together",
+    errorSignature("Traceback (most recent call last):\n  File \"a.py\", line 3\nValueError: bad key")
+      !== errorSignature("Traceback (most recent call last):\n  File \"a.py\", line 9\nKeyError: missing"));
+  check("an all-frame message falls back to the first line rather than empty",
+    errorSignature("  at one\n  at two") === "at one");
+  check("a single-line message is unaffected by the rule",
+    errorSignature("stub adapter called") === "stub adapter called");
 
   // Canary preflight: deterministic, not a rate threshold.
   check("failedCanaries names exactly the failing adapters",
@@ -180,7 +194,7 @@ const healthy = (t: Partial<Tally> = {}): RunState => state({}, {
 
 {
   const t = tally({ casesGenerated: 20, casesIngested: 20 });
-  for (let i = 0; i < 3; i++) recordDivergence(t, "ts", "python");
+  for (let i = 0; i < 3; i++) recordDivergence(t, "ts", "python", "number-changed");
   for (let i = 0; i < 121; i++) recordError(t, "python", "rust", "ModuleNotFoundError: No module named 'toon_format'");
   for (let i = 0; i < 56; i++) recordOk(t);
 
@@ -190,6 +204,9 @@ const healthy = (t: Partial<Tally> = {}): RunState => state({}, {
     t.checksAttempted === t.checksCompleted + t.errors);
   check("the legacy line still reports the pre-split total",
     legacyLine(state({ casesPlanned: 20 }, t)).startsWith("DIVERGENCES: 124 |"));
+
+  check("grouping a divergence does not disturb the legacy total",
+    legacyFindings(t) === 124);
   check("the legacy line keeps its original field order and shape",
     legacyLine(state({ casesPlanned: 20 }, t)) ===
       "DIVERGENCES: 124 | cases: 20/20 | pair-checks: 180 | generator-malformed: 0");
@@ -199,6 +216,68 @@ const healthy = (t: Partial<Tally> = {}): RunState => state({}, {
   // A clean run's legacy line is unchanged from the pre-module wording.
   check("a clean run still reads NO DIVERGENCES on the legacy line",
     legacyLine(healthy()).startsWith("NO DIVERGENCES |"));
+}
+
+// ---- divergence grouping --------------------------------------------------
+// Errors were grouped from the first version of this module and divergences were
+// not, so "124 findings" could not say how many were ONE input-side cause. These
+// checks are the difference between counting that and inferring it.
+
+{
+  const t = tally({ casesGenerated: 20, casesIngested: 20 });
+  for (let i = 0; i < 118; i++) recordDivergence(t, "ts", "python", "number-changed");
+  for (let i = 0; i < 4; i++) recordDivergence(t, "ts", "rust", "container->string");
+  recordDivergence(t, "python", "rust", "array->object");
+
+  check("repeated identical divergences collapse to one signature",
+    t.divergenceSignatures.get("number-changed") === 118);
+  check("distinct divergence classes stay apart",
+    t.divergenceSignatures.size === 3 &&
+    t.divergenceSignatures.get("container->string") === 4 &&
+    t.divergenceSignatures.get("array->object") === 1);
+  check("the signature histogram sums to the divergence count",
+    [...t.divergenceSignatures.values()].reduce((a, b) => a + b, 0) === t.divergences);
+  check("a dominant class is visible as a share, not inferred from pair uniformity",
+    (t.divergenceSignatures.get("number-changed")! / t.divergences) > 0.9);
+
+  const rendered = renderManifest(state({ casesPlanned: 20 }, t));
+  check("the manifest renders divergence signatures", rendered.includes("divergence signatures:"));
+  check("the manifest renders the dominant class with its count",
+    rendered.includes("118x  number-changed"));
+  check("divergence signatures are ordered by count, dominant first",
+    rendered.indexOf("number-changed") < rendered.indexOf("container->string"));
+}
+
+// ---- the oracle-disagreement path -----------------------------------------
+// A fingerprint of "none" means the oracle judges the trees EQUAL, so the caller
+// and the oracle disagree about whether this is a divergence at all. That is a
+// harness defect and must never become a filed divergence class.
+
+{
+  const t = tally({ casesGenerated: 5, casesIngested: 5 });
+  recordDivergence(t, "ts", "python", "number-changed");
+  recordDivergence(t, "ts", "python", "none");
+  recordDivergence(t, "ts", "python", "none");
+
+  check("an oracle disagreement is counted apart", t.oracleDisagreements === 2);
+  check("an oracle disagreement never enters the signature histogram",
+    t.divergenceSignatures.size === 1 && !t.divergenceSignatures.has("none"));
+  check("an oracle disagreement still counts as a divergence for the totals",
+    t.divergences === 3);
+  const rendered = renderManifest(state({ casesPlanned: 5 }, t));
+  check("the manifest reports an oracle disagreement as a DEFECT, not a finding",
+    rendered.includes("defect:") && rendered.includes("the oracle judges EQUAL"));
+}
+
+// ---- signature normalisation ----------------------------------------------
+
+{
+  check("divergence signatures collapse whitespace",
+    divergenceSignature("number  changed\n") === "number changed");
+  check("divergence signatures are length-capped",
+    divergenceSignature("x".repeat(400)).length === 120);
+  check("divergence signatures do NOT blank digits, unlike error signatures",
+    divergenceSignature("field-3-changed") !== divergenceSignature("field-9-changed"));
 }
 
 // ---- 6. a real clean run still passes ------------------------------------

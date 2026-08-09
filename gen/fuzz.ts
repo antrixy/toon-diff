@@ -40,6 +40,7 @@ import type { Adapter } from "../adapters/contract.ts";
 import { tsAdapter } from "../adapters/ts.ts";
 import { pythonAdapterPersistent, shutdownPython } from "../adapters/python-persistent.ts";
 import { rustAdapterPersistent, shutdownRust } from "../adapters/rust-persistent.ts";
+import { fingerprintMismatch } from "./failure-signature.ts";
 import { generateCase } from "./generate.ts";
 import type { Provenance } from "./generate.ts";
 import { CHANNELS, CONFIG, eligibleChannels, generateProperty } from "./property.ts";
@@ -303,7 +304,10 @@ const main = async () => {
           if (equal(ingest(back), expected)) {
             recordOk(tally);
           } else {
-            recordDivergence(tally, X.name, Y.name);
+            // Classified HERE, not in run-manifest.ts: categorising a difference
+            // needs the oracle, and that module stays adapter-free so it can be
+            // proven in the sandbox. It takes the verdict; it does not reach for it.
+            recordDivergence(tally, X.name, Y.name, fingerprintMismatch(c.text, back));
             printFinding(c, X.name, Y.name, back, undefined, skewNote(X, Y));
           }
           health.noteOk(X.name);

@@ -127,6 +127,29 @@ export interface Tally {
   quarantined: string[];
   /** Normalised error signature -> count. Insertion-ordered for stable rendering. */
   errorSignatures: Map<string, number>;
+  /**
+   * Normalised divergence fingerprint -> count. Insertion-ordered, same as above.
+   *
+   * WHY THIS EXISTS. Errors were grouped from the first version of this module and
+   * divergences were not, so a run reporting "124 findings" could not say how many
+   * were one input-side cause. The claim "most of it is the out-of-domain numeric
+   * class" was an INFERENCE from uniform hit counts across nine pairs -- exactly the
+   * shape of assumption-standing-in-for-measurement this project rejects elsewhere.
+   * Grouping makes it a count.
+   *
+   * THE FINGERPRINT IS PASSED IN, NOT COMPUTED HERE. Classifying a divergence needs
+   * the oracle; importing it would drag this module back toward the untestability
+   * that pulled it out of fuzz.ts in the first place. This module owns the
+   * ACCOUNTING and knows nothing about how a difference is categorised.
+   */
+  divergenceSignatures: Map<string, number>;
+  /**
+   * Divergences whose fingerprint came back "none": the caller reported a
+   * divergence the oracle judges EQUAL. Counted apart rather than bucketed, because
+   * it is not a divergence class -- it is the caller and the oracle disagreeing,
+   * which is a defect in the harness and must not be filed as a finding.
+   */
+  oracleDisagreements: number;
 }
 
 export function emptyTally(): Tally {
@@ -143,6 +166,8 @@ export function emptyTally(): Tally {
     capped: false,
     quarantined: [],
     errorSignatures: new Map(),
+    divergenceSignatures: new Map(),
+    oracleDisagreements: 0,
   };
 }
 
@@ -156,19 +181,64 @@ export function legacyFindings(t: Tally): number {
 }
 
 /**
- * Collapse an error message to a grouping key. First line only, whitespace
- * collapsed, digit runs replaced -- so one dead worker's repeated failure groups
- * into a single signature with a count instead of N separate "findings".
- * Quoted content is KEPT: in "No module named 'toon_format'" the quoted name is
- * the informative part.
+ * Lines that carry no information about WHICH failure this is: python traceback
+ * frames ("  File \"...\", line N"), Node/V8 frames ("    at fn (...)"), and the
+ * "..." elision. Matched conservatively -- a line only counts as a frame if it
+ * looks like one, so an ordinary message is never discarded.
+ */
+const FRAME_RE = /^\s*(at\s|File\s+"|\.{3}\s*$)/;
+
+/**
+ * Collapse an error message to a grouping key: whitespace collapsed, digit runs
+ * replaced, so one dead worker's repeated failure groups into a single signature
+ * with a count instead of N separate "findings". Quoted content is KEPT: in
+ * "No module named 'toon_format'" the quoted name is the informative part.
+ *
+ * WHICH LINE. Not the first, and NOT simply the last.
+ *
+ * First-line-only was the original rule and it fails on python: the first line of
+ * a traceback is "Traceback (most recent call last):", identical for every
+ * exception, so three genuinely different python failures grouped under one
+ * useless key in the live run. That is the recorded defect.
+ *
+ * Last-non-empty-line is the fix both handoff files propose, and it is WRONG in
+ * the other direction. A Node error ends in a STACK FRAME, so last-non-empty would
+ * discard the informative message line and split one error into as many signatures
+ * as it has distinct frames -- over-splitting, the exact inverse of the defect, and
+ * ts is the Node adapter so it would have been the common case.
+ *
+ * The rule that serves both: take the last non-empty line that is NOT a frame, and
+ * fall back to the first line when every line is a frame. Python yields its final
+ * "ValueError: ..." line; Node yields its message line; a single-line message is
+ * unaffected. Both failure modes are pinned by mutations, not by this comment.
  */
 export function errorSignature(message: string): string {
-  return message
-    .split("\n")[0]
+  const lines = message.split("\n");
+  let pick = lines[0] ?? "";
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (l.trim() === "" || FRAME_RE.test(l)) continue;
+    pick = l;
+    break;
+  }
+  return pick
     .replace(/\s+/g, " ")
     .replace(/\d+/g, "#")
     .trim()
     .slice(0, 120);
+}
+
+/**
+ * Collapse a divergence fingerprint to a grouping key.
+ *
+ * Deliberately thinner than errorSignature. Fingerprints arrive already
+ * categorised by the caller ("number-changed", "container->string", ...), so there
+ * is nothing to normalise except whitespace and length. Digits are NOT replaced
+ * here: a fingerprint has no free-text numbers to normalise away, and blanking
+ * them would collapse categories that legitimately carry an index.
+ */
+export function divergenceSignature(fingerprint: string): string {
+  return fingerprint.replace(/\s+/g, " ").trim().slice(0, 120);
 }
 
 export function recordOk(t: Tally): void {
@@ -176,11 +246,31 @@ export function recordOk(t: Tally): void {
   t.checksCompleted++;
 }
 
-export function recordDivergence(t: Tally, from: string, to: string): void {
+/**
+ * A divergence, with its fingerprint REQUIRED rather than optional-with-a-default.
+ *
+ * There is exactly one call site and it can always classify, so a default would buy
+ * nothing and cost the invariant: an optional parameter lets a future call site
+ * silently record an unclassified divergence, which is the bare-counter defect
+ * wearing a parameter. A caller that genuinely cannot classify must say so with an
+ * explicit fingerprint, not by omission.
+ *
+ * A fingerprint of "none" means the oracle judges the two trees EQUAL, so the
+ * caller and the oracle disagree about whether this is a divergence at all. That is
+ * a harness defect, not a finding: it is counted apart and kept out of the
+ * signature histogram so it can never be filed upstream as a divergence class.
+ */
+export function recordDivergence(t: Tally, from: string, to: string, fingerprint: string): void {
   t.checksAttempted++;
   t.checksCompleted++;
   t.divergences++;
   if (from === to) t.selfPairDivergences++;
+  if (fingerprint === "none") {
+    t.oracleDisagreements++;
+    return;
+  }
+  const sig = divergenceSignature(fingerprint);
+  t.divergenceSignatures.set(sig, (t.divergenceSignatures.get(sig) ?? 0) + 1);
 }
 
 export function recordError(t: Tally, from: string, to: string, message: string): void {
@@ -382,6 +472,13 @@ export function renderManifest(s: RunState): string {
     ` (self-pairs: ${tally.selfPairDivergences} divergences, ${tally.selfPairErrors} errors)`,
   );
 
+  if (tally.divergenceSignatures.size > 0) {
+    lines.push(`  divergence signatures:`);
+    for (const [sig, n] of [...tally.divergenceSignatures.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))) {
+      lines.push(`    ${String(n).padStart(6)}x  ${sig}`);
+    }
+  }
+
   if (tally.errorSignatures.size > 0) {
     lines.push(`  error signatures:`);
     for (const [sig, n] of [...tally.errorSignatures.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))) {
@@ -390,6 +487,14 @@ export function renderManifest(s: RunState): string {
   }
 
   for (const p of problems) lines.push(`  problem:   ${p}`);
+
+  // Not a finding and not a class: the caller called it a divergence and the oracle
+  // called the trees equal. Rendered as a DEFECT so it cannot be mistaken for a
+  // thin result, and kept out of the histogram above so it cannot be filed.
+  if (tally.oracleDisagreements > 0) {
+    lines.push(`  defect:    ${tally.oracleDisagreements} divergence(s) the oracle judges EQUAL.`);
+    lines.push(`             The harness and the oracle disagree; fix that before triaging anything here.`);
+  }
 
   // A self-pair divergence is legitimate signal -- an implementation disagreeing
   // with itself is the 013 precision class -- so this is a pointer, not a verdict.
