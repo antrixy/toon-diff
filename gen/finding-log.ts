@@ -46,6 +46,16 @@ export interface PropertyFinding {
   /** The recipe exactly as printed, e.g. "prop:v2/general@1059844/40". */
   recipe: string;
   identity: PropertyIdentity;
+  /**
+   * The divergence class, when the line carries one: "number-changed",
+   * "key-dropped", ... NULL for an error finding (errors carry no class marker,
+   * by design) and null for any log written BEFORE fuzz.ts started printing it.
+   *
+   * OPTIONAL, NOT REQUIRED. Making it required would silently drop every finding
+   * in an archived log, which is the same shape of loss as the version refusal --
+   * except it would be invisible rather than reported.
+   */
+  fingerprint: string | null;
 }
 
 export type Finding = MutationFinding | PropertyFinding;
@@ -70,6 +80,22 @@ const MUTATION_RE = new RegExp(PAIR + String.raw`seed=(\S+) rngSeed=(\d+) maxOps
 const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:\S+)`);
 
 /**
+ * The divergence class marker fuzz.ts appends after the label, in brackets.
+ *
+ * A line may carry TWO bracketed markers -- the skew note and the class -- and on
+ * ts<->rust pairs it usually does, which is exactly where #78 lands. So this takes
+ * the LAST bracketed group and rejects the skew note by name rather than assuming
+ * there is only one.
+ */
+function fingerprintOf(line: string): string | null {
+  const groups = [...line.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]);
+  for (let i = groups.length - 1; i >= 0; i--) {
+    if (!groups[i].startsWith("claimed-spec skew")) return groups[i];
+  }
+  return null;
+}
+
+/**
  * Parse fuzz output into finding records. Unrecognised lines are ignored, which is
  * what lets this run over a whole fuzz-out.txt including its manifest and prose.
  */
@@ -84,7 +110,12 @@ export function parseFindingLog(text: string): Finding[] {
       const identity = parseIdentity(p[3]);
       // A malformed recipe is DROPPED, not guessed at. parseIdentity already
       // rejects unknown channels, so a typo cannot become a replay target.
-      if (identity) out.push({ kind: "property", from: p[1], to: p[2], recipe: p[3], identity });
+      if (identity) {
+        out.push({
+          kind: "property", from: p[1], to: p[2], recipe: p[3], identity,
+          fingerprint: fingerprintOf(line),
+        });
+      }
       continue;
     }
 

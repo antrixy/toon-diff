@@ -96,6 +96,43 @@ const PROPERTY_LOG = [
     dedupeFindings(parseFindingLog(
       SKEWED + "\n" + `ts → python   ✗   prop:v${PROPERTY_GEN_VERSION}/general@1000003/40`)).length === 1);
 
+  // ---- THE DIVERGENCE CLASS MARKER --------------------------------------
+  // fuzz.ts prints the fingerprint it already computes, so a log is greppable by
+  // class without re-running adapters. expected/actual are truncated at 200 bytes,
+  // so before this the class was recoverable only by luck: in the first v2 run,
+  // 7 of 71 divergences happened to show their difference inside that window.
+  const V = PROPERTY_GEN_VERSION;
+  const CLASSED = `ts → rust   ✗   prop:v${V}/general@1000003/40   [key-dropped]`;
+  const c1 = parseFindingLog(CLASSED);
+  check("a finding line carrying a class marker parses", c1.length === 1);
+  check("the class is captured",
+    (c1[0] as PropertyFinding).fingerprint === "key-dropped");
+  check("the marker is not captured into the recipe",
+    (c1[0] as PropertyFinding).recipe === `prop:v${V}/general@1000003/40`);
+
+  // BOTH MARKERS AT ONCE. The skew note is annotated on ts<->rust pairs, which is
+  // exactly where #78 lands, so this combination is the common case rather than an
+  // edge case -- and it is the one a single-bracket assumption would get wrong.
+  const BOTH = `ts → rust   ✗   prop:v${V}/general@1000003/40   [claimed-spec skew 3.3 vs 3.0]   [key-dropped]`;
+  const c2 = parseFindingLog(BOTH);
+  check("a line carrying BOTH a skew note and a class parses", c2.length === 1);
+  check("the class is taken, not the skew note",
+    (c2[0] as PropertyFinding).fingerprint === "key-dropped");
+  check("the recipe survives both markers",
+    (c2[0] as PropertyFinding).recipe === `prop:v${V}/general@1000003/40`);
+  check("a skew note ALONE yields no class rather than being mistaken for one",
+    (parseFindingLog(SKEWED)[0] as PropertyFinding).fingerprint === null);
+
+  // A log written BEFORE fuzz.ts printed the class must still parse. Requiring the
+  // marker would silently drop every finding in an archived run -- the same shape
+  // of loss as a version mismatch, except invisible instead of reported.
+  check("a pre-change log still parses, with a null class",
+    (parseFindingLog(PROPERTY_LOG)[0] as PropertyFinding).fingerprint === null);
+
+  check("the class does not affect dedup: one case, two classes, one target",
+    dedupeFindings(parseFindingLog(
+      CLASSED + "\n" + `ts → python   ✗   prop:v${V}/general@1000003/40   [number-changed]`)).length === 1);
+
   const mixed = parseFindingLog(MUTATION_LOG + "\n" + PROPERTY_LOG);
   check("a mixed log yields both kinds", mixed.length === 2 &&
     mixed.filter((f) => f.kind === "mutation").length === 1 &&

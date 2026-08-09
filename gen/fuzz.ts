@@ -164,10 +164,28 @@ function skewNote(X: Adapter, Y: Adapter): string {
     : "";
 }
 
+/**
+ * A finding line, with the divergence CLASS on it.
+ *
+ * WHY THE CLASS IS PRINTED. expected/actual are truncated at 200 bytes, so the
+ * class was previously recoverable from a log only when the difference happened to
+ * fall inside that window. In the first v2 run it did so for 7 of 71 divergences:
+ * #78's U+0000 keys were in the log the whole time and mostly invisible. The
+ * fingerprint is already computed for the tally, so printing it costs nothing and
+ * makes a log greppable by class without re-running the adapters.
+ *
+ * The marker sits in BRACKETS after the label, the same shape the skew note uses,
+ * so a line can carry both and finding-log's pattern -- deliberately not anchored
+ * at end of line, since the skew-note defect -- keeps working unchanged.
+ *
+ * ERRORS GET NO MARKER. Their class is already on the `error:` line and grouped by
+ * errorSignature; a second vocabulary for them would be noise.
+ */
 function printFinding(
-  c: Case, from: string, to: string, actual: string, error?: string, skew = "",
+  c: Case, from: string, to: string, actual: string, error?: string, skew = "", fingerprint = "",
 ): void {
-  console.log(`${from} \u2192 ${to}   \u2717   ${c.label}${skew}`);
+  const fp = fingerprint ? `   [${fingerprint}]` : "";
+  console.log(`${from} \u2192 ${to}   \u2717   ${c.label}${skew}${fp}`);
   console.log(`  recipe:   ${c.recipe}`);
   if (error) { console.log(`  error:    ${error}\n`); return; }
   console.log(`  expected: ${trim(c.text)}`);
@@ -307,8 +325,13 @@ const main = async () => {
             // Classified HERE, not in run-manifest.ts: categorising a difference
             // needs the oracle, and that module stays adapter-free so it can be
             // proven in the sandbox. It takes the verdict; it does not reach for it.
-            recordDivergence(tally, X.name, Y.name, fingerprintMismatch(c.text, back));
-            printFinding(c, X.name, Y.name, back, undefined, skewNote(X, Y));
+            //
+            // Computed ONCE and passed to both the tally and the printed line. Two
+            // calls could disagree, and a manifest histogram that does not match
+            // its own findings is worse than no histogram.
+            const fp = fingerprintMismatch(c.text, back);
+            recordDivergence(tally, X.name, Y.name, fp);
+            printFinding(c, X.name, Y.name, back, undefined, skewNote(X, Y), fp);
           }
           health.noteOk(X.name);
           health.noteOk(Y.name);

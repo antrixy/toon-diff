@@ -25,8 +25,8 @@ MUTATIONS = [
      '      ? `prop|${f.from}->${f.to}|${f.recipe}`'),
 
     ("M3  malformed recipe guessed at instead of dropped",
-     "      if (identity) out.push({ kind: \"property\", from: p[1], to: p[2], recipe: p[3], identity });",
-     "      out.push({ kind: \"property\", from: p[1], to: p[2], recipe: p[3], identity: identity ?? { version: 1, channel: \"general\", rngSeed: 0, size: 0 } });"),
+     "      if (identity) {",
+     "      if (true) {"),
 
     ("M4  version split accepts every version (the refusal rule dropped)",
      "    if (f.identity.version === currentVersion) { current.push(f); continue; }",
@@ -59,6 +59,22 @@ MUTATIONS = [
     ("M11 a passing line counts as a finding",
      "const PAIR = String.raw`^(ts|python|rust) → (ts|python|rust)\\s+✗\\s+`;",
      "const PAIR = String.raw`^(ts|python|rust) → (ts|python|rust)\\s+.\\s+`;"),
+
+    ("M15 class marker required rather than optional (drops every pre-change log)",
+     "          fingerprint: fingerprintOf(line),",
+     "          fingerprint: fingerprintOf(line) ?? \"MISSING\","),
+
+    ("M16 first bracketed group taken, so the skew note is read as the class",
+     "  for (let i = groups.length - 1; i >= 0; i--) {\n    if (!groups[i].startsWith(\"claimed-spec skew\")) return groups[i];\n  }\n  return null;",
+     "  return groups.length > 0 ? groups[0] : null;"),
+
+    ("M17 skew note no longer excluded, so a skewed line reports it as a class",
+     '    if (!groups[i].startsWith("claimed-spec skew")) return groups[i];',
+     "    return groups[i];"),
+
+    ("M18 class folded into the dedup key, so one case splits per class",
+     '      ? `prop|${f.recipe}`',
+     '      ? `prop|${f.recipe}|${f.fingerprint}`'),
 
     ("M14 property regex anchored at end of line (drops every skewed-pair finding)",
      "const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:\\S+)`);",
