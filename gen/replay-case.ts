@@ -13,7 +13,7 @@
 // Run: node --experimental-strip-types gen/replay-case.ts <seedFile> <rngSeed> [maxOps]
 //      node --experimental-strip-types gen/replay-case.ts "<prop recipe>"
 //   e.g. node --experimental-strip-types gen/replay-case.ts 004-uniform-table.json 7029941 3
-//        node --experimental-strip-types gen/replay-case.ts "prop:v1/general@1000003/40"
+//        node --experimental-strip-types gen/replay-case.ts "prop:v2/general@1000003/40"
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

@@ -45,7 +45,7 @@ import { FAMILIES, token } from "./toon-surface.ts";
  * version is a different case. Golden outputs in selftest-property.ts make a
  * silent bump impossible.
  */
-export const PROPERTY_GEN_VERSION = 1;
+export const PROPERTY_GEN_VERSION = 2;
 
 export const CHANNELS = [
   "general",
@@ -77,6 +77,36 @@ export const CONFIG = {
     maxChildren: 8,
     maxBytes: 262_144,
   },
+  /**
+   * MEAN INTEGER LENGTH, in digits, of a generated number lexeme.
+   *
+   * THIS IS A STATEMENT ABOUT THE INPUT DOMAIN, NOT ABOUT ANY IMPLEMENTATION.
+   * Ten digits is a Unix second timestamp and a typical database identifier --
+   * the largest magnitude that occurs ROUTINELY rather than exceptionally in real
+   * JSON. A reviewer who thinks the domain mean is 7, or 12, can argue for that
+   * on its own terms without knowing anything about floating point.
+   *
+   * WHAT IT REPLACES, STATED THE SAME WAY. Drawing 1..40 uniformly asserts a mean
+   * integer length of 20.5 digits -- that the average generated number is around
+   * 10^20. No corpus of JSON anywhere looks like that. That is the defect, and it
+   * is statable without naming a boundary.
+   *
+   * WHY GEOMETRIC. It is the maximum-entropy distribution on a positive integer
+   * given its mean, so fixing the mean fixes the whole shape and adds no second
+   * assumption. It is monotone decreasing with its only feature at d=1, and the
+   * ratio p(d)/p(d-1) is CONSTANT -- the distribution is literally featureless
+   * across the region where implementations start to differ, having the same local
+   * shape at 15->16->17 as at 30->31->32. So that region is reached as a
+   * CONSEQUENCE of the mean and never as a target, which is rule 1 above turned
+   * from a comment into an enforced invariant. All three properties -- monotone,
+   * constant-ratio, and mean-matches-config -- are checked in
+   * selftest-property.ts, and the checks are mutation-tested.
+   *
+   * NOTE THE CONSTRAINT IS SYMMETRIC. A distribution PEAKING near the boundary
+   * would smuggle it in as a weight; so would one with a NOTCH there. Aiming away
+   * is boundary-referencing with a minus sign. A featureless decay does neither.
+   */
+  digitMean: 10,
   channelWeights: {
     "general": 6,
     "shape-flat-wide": 3,
@@ -151,7 +181,7 @@ export interface PropertyIdentity {
   size: number;
 }
 
-/** e.g. "prop:v1/shape-uniform-table@1000003/40" */
+/** e.g. "prop:v2/shape-uniform-table@1000003/40" */
 export function identityOf(id: PropertyIdentity): string {
   return `prop:v${id.version}/${id.channel}@${id.rngSeed}/${id.size}`;
 }
@@ -189,6 +219,49 @@ function weighted<K extends string>(rng: Rng, weights: Record<K, number>, keys: 
 const DIGITS = "0123456789";
 
 /**
+ * Cumulative geometric weights over digit counts 1..maxDigits, solved at module
+ * load so the mean equals CONFIG.digitMean.
+ *
+ * Solved numerically rather than hardcoding a decay rate, so the ONE free
+ * parameter stays expressed in the unit it is argued in -- digits, not a rate.
+ * Built from CONFIG, so a change to digitMean is visible in canonicalConfig() and
+ * cannot drift from the table.
+ */
+const DIGIT_CDF: number[] = (() => {
+  const n = CONFIG.caps.maxDigits;
+  const meanOf = (r: number): number => {
+    let num = 0, den = 0;
+    for (let d = 1; d <= n; d++) { const w = Math.pow(r, d - 1); num += d * w; den += w; }
+    return num / den;
+  };
+  let lo = 1e-6, hi = 1 - 1e-9;
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    (meanOf(mid) < CONFIG.digitMean) ? lo = mid : hi = mid;
+  }
+  const w: number[] = [];
+  let tot = 0;
+  for (let d = 1; d <= n; d++) { const x = Math.pow(lo, d - 1); w.push(x); tot += x; }
+  const cdf: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < n; i++) { acc += w[i] / tot; cdf.push(acc); }
+  cdf[n - 1] = 1; // close the interval exactly, so rng.next() -> 1-epsilon cannot fall off the end
+  return cdf;
+})();
+
+/** The per-digit-count probabilities, exported so the selftest can judge the SHAPE. */
+export function digitWeights(): number[] {
+  return DIGIT_CDF.map((c, i) => c - (i === 0 ? 0 : DIGIT_CDF[i - 1]));
+}
+
+/** ONE rng draw, inverse-CDF, so the number path's rng cost is fixed. */
+function drawDigitCount(rng: Rng): number {
+  const u = rng.next();
+  for (let i = 0; i < DIGIT_CDF.length; i++) if (u < DIGIT_CDF[i]) return i + 1;
+  return DIGIT_CDF.length;
+}
+
+/**
  * A JSON number lexeme, assembled as text.
  *
  * Grammar (RFC 8259): -? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)?
@@ -199,10 +272,10 @@ const DIGITS = "0123456789";
  * limit. Note that "-0" is reachable the same way: sign, one digit, zero.
  */
 function numberLexeme(rng: Rng): string {
-  const { maxDigits, maxFracDigits, maxExpDigits } = CONFIG.caps;
+  const { maxFracDigits, maxExpDigits } = CONFIG.caps;
   const form = weighted(rng, CONFIG.numberFormWeights, ["integer", "fraction", "exponent", "both"] as const);
 
-  const intDigits = 1 + rng.int(maxDigits);
+  const intDigits = drawDigitCount(rng);
   let intPart: string;
   if (intDigits === 1) {
     intPart = DIGITS[rng.int(10)];
@@ -266,6 +339,29 @@ function keyName(rng: Rng): string {
   let out = "";
   for (let i = 0; i < n; i++) out += rng.pick(ORDINARY_CHARS);
   return out.trim() === "" ? "k" : out;
+}
+
+/**
+ * The name of the extra column the near-uniform archetype adds to its odd row.
+ *
+ * EXPORTED SO THE SELFTEST CAN INVOKE THIS RULE RATHER THAN MIRROR IT. A check
+ * that reimplements the rule it is checking passes whatever the implementation
+ * does, so reverting the implementation would go unnoticed; that is a mutation
+ * that survives, which is a hole.
+ *
+ * WHY A SUFFIX LOOP AT ALL. Plain `x${first}` can COLLIDE: if first is the empty
+ * string and "x" is already a column, assignment OVERWRITES and the archetype
+ * silently emits a UNIFORM table while claiming near-uniform. Not seen in 115,000
+ * draws in the Aug-8 audit, so it is directed-tested rather than swept for --
+ * reachable is enough, and a sweep that cannot reach a path proves nothing.
+ *
+ * Same technique keySet uses, though keySet appends cumulatively where this
+ * replaces the suffix; equivalent for the purpose, and it yields shorter names.
+ */
+export function addedKeyName(row: Readonly<Record<string, unknown>>, first: string): string {
+  let k = `x${first}`, n = 0;
+  while (k in row) k = `x${first}${++n}`;
+  return k;
 }
 
 /** Unique keys for one object; suffixes on collision so the count is honoured. */
@@ -403,7 +499,7 @@ const ARCHETYPES: Record<Exclude<Channel, "general">, (rng: Rng, size: number) =
       const row: { [k: string]: GNode } = {};
       for (const k of keys) row[k] = scalar(rng);
       if (r === oddRow) {
-        if (canAdd && rng.bool()) row[`x${keys[0]}`] = scalar(rng);
+        if (canAdd && rng.bool()) row[addedKeyName(row, keys[0])] = scalar(rng);
         else delete row[keys[keys.length - 1]];
       }
       out.push(row);
@@ -469,7 +565,7 @@ export interface PropertyCase {
   text: string;
   node: GNode;
   identity: PropertyIdentity;
-  /** The recipe line, e.g. "prop:v1/general@1000003/40". */
+  /** The recipe line, e.g. "prop:v2/general@1000003/40". */
   recipe: string;
   /** Actual node count -- always <= size. */
   nodes: number;

@@ -10,7 +10,7 @@
 //   node --experimental-strip-types gen/shrink-cli.ts --seed 002-empty-array.json --rng 1010088 [--maxops 3]
 //   node --experimental-strip-types gen/shrink-cli.ts --file some-case.json
 //   node --experimental-strip-types gen/shrink-cli.ts --json '{"unsafe":9007199254740993}'
-//   node --experimental-strip-types gen/shrink-cli.ts --recipe "prop:v1/general@1059844/40"
+//   node --experimental-strip-types gen/shrink-cli.ts --recipe "prop:v2/general@1059844/40"
 //
 // Batch (collapse a whole run to one minimal case per distinct failure signature):
 //   node --experimental-strip-types gen/shrink-cli.ts --batch fuzz-out.txt [--limit 40]

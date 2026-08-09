@@ -17,7 +17,7 @@
 //
 // A property finding prints its recipe as the LABEL instead:
 //
-//   ts → python   ✗   prop:v1/general@1059844/40
+//   ts → python   ✗   prop:v2/general@1059844/40
 //     recipe:   general, 37 nodes
 //
 // which matched nothing, so every property finding in a run was invisible to
@@ -43,7 +43,7 @@ export interface PropertyFinding {
   kind: "property";
   from: string;
   to: string;
-  /** The recipe exactly as printed, e.g. "prop:v1/general@1059844/40". */
+  /** The recipe exactly as printed, e.g. "prop:v2/general@1059844/40". */
   recipe: string;
   identity: PropertyIdentity;
 }

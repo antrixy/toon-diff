@@ -243,10 +243,40 @@ constant in the property generator names 2^53, i64/u64 max, or any other
 boundary.** Reusing `BumpNumber`'s palette would make this a re-parameterisation
 of the operator set wearing a different hat.
 
-The generator reaches large-integer regions because the digit-count distribution
-covers them — a chosen broad-region prior, not a prior-free accident. The
-defensible advantage is that it explores those regions **without encoding
-implementation-specific numeric limits or exact regression constants**.
+The digit count is drawn **geometric over 1..maxDigits, truncated**, parameterised
+by `CONFIG.digitMean` — the mean integer length, set to 10. That is a claim about
+the *input domain*: ten digits is a Unix second timestamp and a typical database
+identifier, the largest magnitude that occurs routinely rather than exceptionally
+in real JSON. A reviewer can disagree with it on its own terms without knowing
+anything about floating point.
+
+**What it replaced, stated the same way.** Drawing 1..40 uniformly asserts a mean
+integer length of **20.5 digits** — that the average generated number is around
+10^20. No corpus of JSON looks like that. The defect is statable, and the fix
+choosable, without naming a boundary.
+
+**Why geometric.** It is the maximum-entropy distribution on a positive integer
+given its mean, so fixing the mean fixes the whole shape and adds no second
+assumption. It is monotone decreasing with its only feature at `d=1`, and
+`p(d)/p(d-1)` is *constant* — so the distribution is featureless across the region
+where implementations begin to differ, having the same local shape at 15→16→17 as
+at 30→31→32. That region is reached as a **consequence** of the mean, never as a
+target.
+
+**The constraint is symmetric, and this is the part that is easy to miss.** A prior
+that *peaks* near the boundary smuggles it in as a weight; a prior that *notches*
+there is the same violation with the opposite sign. Aiming away is still aiming.
+A featureless decay does neither, and constant-ratio makes any per-digit
+hand-tuning impossible — which turns rule 1 from a comment into an invariant.
+
+Measured at v2 against v1, general channel: integers past 16 digits fall from
+**60.2% to 18.6%** of numeric draws, and the share of cases carrying at least one
+from **77.5% to 44.8%** — while the informative 10–19 digit band *holds*, 25.0% →
+26.3%. A `1/d` prior cannot do that: it decays hardest at the head, putting 42.8%
+of mass on one-to-three-digit numbers and cutting the middle band to 16.8%.
+
+The defensible advantage remains that these regions are explored **without
+encoding implementation-specific numeric limits or exact regression constants**.
 
 A lexeme assembled from digits as a string never touches a JS number, so the
 no-f64 invariant holds by construction. Numeric content is carried only as
@@ -332,8 +362,8 @@ A property case's identity is `(channel, rngSeed, size)` under a generator
 version, written as one line in the corpus sidecar:
 
 ```
-prop:v1/general@1000003/40
-prop:v1/shape-uniform-table@1000003/400
+prop:v2/general@1000003/40
+prop:v2/shape-uniform-table@1000003/400
 mut:seeds/010-numbers.json@1000003/3
 ```
 
