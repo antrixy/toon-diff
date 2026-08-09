@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Fifteen files, 655 checks. Run all of them; the counts are promotion
+   Fifteen files, 670 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -17,7 +17,7 @@ From the project root (the folder this file is in):
      node --experimental-strip-types gen/selftest-emit.ts              #  31
      node --experimental-strip-types gen/selftest-operators.ts         #  30
      node --experimental-strip-types gen/selftest-shrink.ts            #  20
-     node --experimental-strip-types gen/selftest-property.ts          #  45
+     node --experimental-strip-types gen/selftest-property.ts          #  60
      node --experimental-strip-types gen/selftest-cli-write.ts         #  20
      node --experimental-strip-types gen/selftest-run-manifest.ts      #  90
      node --experimental-strip-types gen/selftest-finding-log.ts       #  41
@@ -39,11 +39,12 @@ From the project root (the folder this file is in):
    key ("seeds/NNN-name.json"); replay-case also accepts pre-v0.3 flat names
    from archived sweep baselines.
 
-3c) MUTATION PASSES. Two modules carry one, and each must be re-run when its
+3c) MUTATION PASSES. Three modules carry one, and each must be re-run when its
    module changes. Both work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 20 mutations killed
      python3 gen/mutate-finding-log.py    # all 14 mutations killed
+     python3 gen/mutate-property.py       # all 14 mutations killed
 
    A SURVIVED line is a hole in the corresponding selftest, not a harmless edit.
    A SKIPPED line means a mutation's anchor text no longer exists in the module,
@@ -92,7 +93,7 @@ it did not happen.
 
    Each divergence prints its recipe and a replay command. Reproduce any case:
      node --experimental-strip-types gen/replay-case.ts <seedFile> <rngSeed> [maxOps]
-     node --experimental-strip-types gen/replay-case.ts "prop:v1/general@1000003/40"
+     node --experimental-strip-types gen/replay-case.ts "prop:v2/general@1000003/40"
 
 ## Reading a run, and shrinking what it found
 
@@ -112,7 +113,7 @@ the run is triaged, let alone filed.
 
 Shrink a finding to a minimal reproducer (FULL ENV, needs the impls):
 
-     node --experimental-strip-types gen/shrink-cli.ts --recipe "prop:v1/general@1059844/40"
+     node --experimental-strip-types gen/shrink-cli.ts --recipe "prop:v2/general@1059844/40"
      node --experimental-strip-types gen/shrink-cli.ts --seed seeds/004-uniform-table.json --rng 7029941
      node --experimental-strip-types gen/shrink-cli.ts --batch fuzz-out.txt [--limit 40]
 
