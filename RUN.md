@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Fourteen files, 595 checks. Run all of them; the counts are promotion
+   Fifteen files, 652 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -19,7 +19,8 @@ From the project root (the folder this file is in):
      node --experimental-strip-types gen/selftest-shrink.ts            #  20
      node --experimental-strip-types gen/selftest-property.ts          #  45
      node --experimental-strip-types gen/selftest-cli-write.ts         #  20
-     node --experimental-strip-types gen/selftest-run-manifest.ts      #  71
+     node --experimental-strip-types gen/selftest-run-manifest.ts      #  90
+     node --experimental-strip-types gen/selftest-finding-log.ts       #  38
      node --experimental-strip-types probe/selftest-corpus.ts          #  37
      node --experimental-strip-types probe/selftest-grid.ts            #  40
      node --experimental-strip-types probe/selftest-explain.ts         #  48
@@ -38,11 +39,18 @@ From the project root (the folder this file is in):
    key ("seeds/NNN-name.json"); replay-case also accepts pre-v0.3 flat names
    from archived sweep baselines.
 
-3c) Re-run the mutation pass when gen/run-manifest.ts changes. It works on
-   scratch copies and never touches the tree:
-     python3 gen/mutate-run-manifest.py
-   Expect: "MUTATION PASS CLEAN: all 14 mutations killed". A SURVIVED line is a
-   hole in gen/selftest-run-manifest.ts, not a harmless edit.
+3c) MUTATION PASSES. Two modules carry one, and each must be re-run when its
+   module changes. Both work on scratch copies and never touch the tree:
+
+     python3 gen/mutate-run-manifest.py   # all 20 mutations killed
+     python3 gen/mutate-finding-log.py    # all 13 mutations killed
+
+   A SURVIVED line is a hole in the corresponding selftest, not a harmless edit.
+   A SKIPPED line means a mutation's anchor text no longer exists in the module,
+   so that mutation has silently stopped testing anything — treat it as a hole.
+
+   These are committed rather than kept local because a mutation pass nobody can
+   re-run is a claim, not a check.
 
 4) Run the differential matrix:
      node --experimental-strip-types cli-v2.ts
@@ -85,3 +93,34 @@ it did not happen.
    Each divergence prints its recipe and a replay command. Reproduce any case:
      node --experimental-strip-types gen/replay-case.ts <seedFile> <rngSeed> [maxOps]
      node --experimental-strip-types gen/replay-case.ts "prop:v1/general@1000003/40"
+
+## Reading a run, and shrinking what it found
+
+The manifest groups BOTH kinds of finding, so a dominant cause is a count rather
+than an impression:
+
+     divergence signatures:      how the trees differed (number-changed, ...)
+     error signatures:           how a call failed, one line per distinct failure
+
+A line reading
+
+     defect:    N divergence(s) the oracle judges EQUAL.
+
+is NOT a thin result. It means the harness called something a divergence that the
+oracle calls equal — the two disagree, and that must be fixed before anything in
+the run is triaged, let alone filed.
+
+Shrink a finding to a minimal reproducer (FULL ENV, needs the impls):
+
+     node --experimental-strip-types gen/shrink-cli.ts --recipe "prop:v1/general@1059844/40"
+     node --experimental-strip-types gen/shrink-cli.ts --seed seeds/004-uniform-table.json --rng 7029941
+     node --experimental-strip-types gen/shrink-cli.ts --batch fuzz-out.txt [--limit 40]
+
+--batch reads BOTH mutation and property findings. A property case that diverges
+on nine pairs is ONE shrink target, not nine: the same bytes fail on every pair
+and captureSignatures already captures all of them from a single case.
+
+A recipe from another generator version is REFUSED AND REPORTED, never replayed —
+the grammar is part of a case's identity, so the bytes would not match. After a
+PROPERTY_GEN_VERSION bump an old fuzz-out.txt is entirely stale recipes, and the
+refusal report is what keeps that from looking like a run with no findings.
