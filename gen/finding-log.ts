@@ -52,11 +52,22 @@ export type Finding = MutationFinding | PropertyFinding;
 
 const PAIR = String.raw`^(ts|python|rust) → (ts|python|rust)\s+✗\s+`;
 const MUTATION_RE = new RegExp(PAIR + String.raw`seed=(\S+) rngSeed=(\d+) maxOps=(\d+)`);
-// The property label is the recipe itself. Anchored on the "prop:" prefix rather
-// than on the full grammar so a recipe from a FUTURE generator version still
-// parses into a record -- it has to, or the version refusal below could never
-// report it and it would look like a log with no property findings at all.
-const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:\S+)\s*$`);
+// The property label is the recipe itself. Two things about this pattern are
+// load-bearing and neither is obvious:
+//
+// 1. ANCHORED ON THE "prop:" PREFIX, not on the full recipe grammar, so a recipe
+//    from a FUTURE generator version still parses into a record. It has to, or
+//    the version refusal below could never report it and a post-bump log would
+//    look like a run with no property findings at all.
+//
+// 2. NOT ANCHORED AT END OF LINE. printFinding appends a skew note after the
+//    label -- "prop:v1/general@1000003/40   [claimed-spec skew 3.3 vs 3.0]" --
+//    whenever the pair's claimed spec versions differ. An end anchor silently
+//    dropped EVERY finding on a skewed pair: 29 of 124 in the first real run this
+//    was tried against, all of them ts<->rust. It was invisible to a selftest
+//    built from retyped printFinding output, because the note only appears when
+//    two adapters disagree about their claimed spec version.
+const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:\S+)`);
 
 /**
  * Parse fuzz output into finding records. Unrecognised lines are ignored, which is

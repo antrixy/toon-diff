@@ -82,6 +82,20 @@ const PROPERTY_LOG = [
   check("the recipe round-trips as printed",
     prop.recipe === `prop:v${PROPERTY_GEN_VERSION}/general@1059844/40`);
 
+  // THE SKEW NOTE. printFinding appends "[claimed-spec skew X vs Y]" after the
+  // label when a pair's claimed spec versions differ. An end-of-line anchor here
+  // dropped 29 of 124 findings in the first real run -- every ts<->rust finding.
+  // Retyping printFinding's output is what hid it: the note only appears when two
+  // adapters disagree, so a hand-built fixture never has one.
+  const SKEWED = `ts → rust   ✗   prop:v${PROPERTY_GEN_VERSION}/general@1000003/40   [claimed-spec skew 3.3 vs 3.0]`;
+  const skewed = parseFindingLog(SKEWED);
+  check("a finding carrying a skew note still parses", skewed.length === 1);
+  check("the skew note is not captured into the recipe",
+    (skewed[0] as PropertyFinding).recipe === `prop:v${PROPERTY_GEN_VERSION}/general@1000003/40`);
+  check("a skewed and an unskewed finding of the same case dedup together",
+    dedupeFindings(parseFindingLog(
+      SKEWED + "\n" + `ts → python   ✗   prop:v${PROPERTY_GEN_VERSION}/general@1000003/40`)).length === 1);
+
   const mixed = parseFindingLog(MUTATION_LOG + "\n" + PROPERTY_LOG);
   check("a mixed log yields both kinds", mixed.length === 2 &&
     mixed.filter((f) => f.kind === "mutation").length === 1 &&

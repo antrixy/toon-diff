@@ -60,9 +60,13 @@ MUTATIONS = [
      "const PAIR = String.raw`^(ts|python|rust) → (ts|python|rust)\\s+✗\\s+`;",
      "const PAIR = String.raw`^(ts|python|rust) → (ts|python|rust)\\s+.\\s+`;"),
 
+    ("M14 property regex anchored at end of line (drops every skewed-pair finding)",
+     "const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:\\S+)`);",
+     "const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:\\S+)\\s*$`);"),
+
     ("M12 property regex anchors on the full grammar, so a FUTURE version cannot be reported",
-     "const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:\\S+)\\s*$`);",
-     "const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:v1/\\S+)\\s*$`);"),
+     "const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:\\S+)`);",
+     "const PROPERTY_RE = new RegExp(PAIR + String.raw`(prop:v1/\\S+)`);"),
 
     ("M13 mutation findings dropped entirely",
      "    const m = MUTATION_RE.exec(line);\n    if (m) {",
