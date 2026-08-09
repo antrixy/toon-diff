@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Fifteen files, 670 checks. Run all of them; the counts are promotion
+   Fifteen files, 679 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -20,7 +20,7 @@ From the project root (the folder this file is in):
      node --experimental-strip-types gen/selftest-property.ts          #  60
      node --experimental-strip-types gen/selftest-cli-write.ts         #  20
      node --experimental-strip-types gen/selftest-run-manifest.ts      #  90
-     node --experimental-strip-types gen/selftest-finding-log.ts       #  41
+     node --experimental-strip-types gen/selftest-finding-log.ts       #  50
      node --experimental-strip-types probe/selftest-corpus.ts          #  37
      node --experimental-strip-types probe/selftest-grid.ts            #  40
      node --experimental-strip-types probe/selftest-explain.ts         #  48
@@ -43,7 +43,7 @@ From the project root (the folder this file is in):
    module changes. Both work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 20 mutations killed
-     python3 gen/mutate-finding-log.py    # all 14 mutations killed
+     python3 gen/mutate-finding-log.py    # all 18 mutations killed
      python3 gen/mutate-property.py       # all 14 mutations killed
 
    A SURVIVED line is a hole in the corresponding selftest, not a harmless edit.
@@ -110,6 +110,22 @@ A line reading
 is NOT a thin result. It means the harness called something a divergence that the
 oracle calls equal — the two disagree, and that must be fixed before anything in
 the run is triaged, let alone filed.
+
+Each divergence line also carries its CLASS in brackets, after the label and after
+any skew note:
+
+     ts → rust   ✗   prop:v2/general@1000003/40   [claimed-spec skew 3.3 vs 3.0]   [key-dropped]
+
+so a log is greppable by class without re-running the adapters. This matters more
+than it looks: expected/actual are truncated at 200 bytes, so before this the class
+was recoverable from a log only when the difference fell inside that window — in
+the first v2 run, 7 of 71. Logs written before this change still parse, with no
+class rather than being dropped.
+
+READ THE CLASS AS THE HARNESS'S HYPOTHESIS, NOT THE FINDING. "key-dropped" is what
+the fingerprinter calls a key that came back different; toon-rust#78 wears that
+label and the key is CORRUPTED, not dropped. Read the wire text before believing
+the name.
 
 Shrink a finding to a minimal reproducer (FULL ENV, needs the impls):
 
