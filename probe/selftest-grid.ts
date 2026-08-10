@@ -7,7 +7,7 @@
  *   - aggregate cell counts (the 013 TS-asymmetry + the 002 decoder column)
  *   - error-vs-mismatch marks per case (002: python coerces ✗, rust errors E)
  *   - corpus ordering of case grids and in-cell case lists
- *   - pairChecks arithmetic matches cli-v2's counter (13 x 3 x 3 = 117)
+ *   - pairChecks arithmetic matches cli-v2's counter (14 x 3 x 3 = 126)
  *   - harness-bug tripwires: unknown adapter, unknown case, duplicate record
  *   - rendering: alignment inputs, legend, all-agree grid has no BY CASE
  *
@@ -53,8 +53,8 @@ const caseKeys = corpus.cases.map((c) => c.key);
 
 console.log("Part 1: aggregate grid on the real 7");
 const grid = buildGrid(MATRIX_2026_07_12, ADAPTERS, caseKeys);
-ok("13 cases", grid.caseCount, 13);
-ok("117 pair-checks (matches cli-v2 arithmetic)", grid.pairChecks, 117);
+ok("14 cases", grid.caseCount, 14);
+ok("126 pair-checks (matches cli-v2 arithmetic)", grid.pairChecks, 126);
 ok("7 total divergences", grid.totalDivergences, 7);
 ok("adapters keep cli order", grid.adapters.join(","), "ts,python,rust");
 
@@ -112,7 +112,7 @@ console.log("Part 3: harness-bug tripwires");
 console.log("Part 4: rendering");
 const lines = renderGridReport(grid);
 ok("header names the geometry", lines[0].includes("encoder row"), true);
-ok("header carries the case count", lines[0].includes("of 13"), true);
+ok("header carries the case count", lines[0].includes("of 14"), true);
 ok("column header row renders all adapters", lines[1].includes("ts") && lines[1].includes("python") && lines[1].includes("rust"), true);
 ok("a count cell renders (ts row has a 2)", lines.some((l) => l.trimStart().startsWith("ts ") && l.includes("2")), true);
 ok("agree cells render as \u00b7", lines.some((l) => l.trimStart().startsWith("python") && l.includes("\u00b7")), true);

@@ -30,10 +30,21 @@ function ok(label: string, got: unknown, want: unknown) {
 // ---------- Part 1: the real corpus ----------
 console.log("Part 1: real corpus");
 const corpus = loadCorpus();
-ok("13 cases load", corpus.cases.length, 13);
-ok("all 13 are in seeds/", corpus.byBucket.seeds.length, 13);
-ok("other buckets are empty", BUCKETS.filter((b) => b !== "seeds").every((b) => corpus.byBucket[b].length === 0), true);
-ok("ids are unique in bucket", new Set(corpus.byBucket.seeds.map((c) => c.id)).size, 13);
+ok("14 cases load", corpus.cases.length, 14);
+ok("13 are in seeds/", corpus.byBucket.seeds.length, 13);
+// generated/ opened 2026-08-09 with the toon-rust#78 witness. The bucket exists to
+// keep PROVENANCE legible: a hand-written seed and a fuzz-found case promoted into
+// the corpus are different kinds of evidence and must not be counted as one.
+ok("1 is in generated/", corpus.byBucket.generated.length, 1);
+ok("the remaining buckets are still empty",
+  BUCKETS.filter((b) => b !== "seeds" && b !== "generated").every((b) => corpus.byBucket[b].length === 0), true);
+// Ids are unique PER BUCKET (corpus.ts:124 scopes seenIds inside the bucket loop),
+// so generated/ numbers from 001 rather than continuing the seeds sequence.
+ok("ids are unique within each bucket",
+  BUCKETS.every((b) => new Set(corpus.byBucket[b].map((c) => c.id)).size === corpus.byBucket[b].length), true);
+const nul = corpus.byBucket.generated.find((c) => c.id === "001")!;
+ok("the promoted case carries its upstream ref",
+  Array.isArray(nul.meta.refs) && nul.meta.refs.some((r) => r.includes("toon-rust/issues/78")), true);
 ok("keys are corpus-relative", corpus.cases.every((c) => c.key === `${c.bucket}/${c.id}-${c.name}.json`), true);
 ok("every meta has origin + invariant", corpus.cases.every((c) => c.meta.origin.length > 0 && c.meta.invariant.length > 0), true);
 const c013 = corpus.cases.find((c) => c.id === "013")!;
