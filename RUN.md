@@ -52,7 +52,7 @@ From the project root (the folder this file is in):
    read what goes red; do not go looking for the counts by hand.
 
 3c) MUTATION PASSES. Three modules carry one, and each must be re-run when its
-   module changes. Both work on scratch copies and never touch the tree:
+   module changes. All three work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 20 mutations killed
      python3 gen/mutate-finding-log.py    # all 18 mutations killed
@@ -75,7 +75,7 @@ should pass. That asymmetry is the real finding, not a harness bug.
 
 ## v0.2 — the mutation generator (gen/)
 
-The generator turns the 13 seeds into inputs nobody wrote, along documented fault
+The generator turns the 13 SEEDS into inputs nobody wrote, along documented fault
 lines (flat/wide objects, large tables, boundary integers, delimiter strings).
 See gen/DESIGN.md for the operator set and the non-corruption invariant.
 
@@ -85,6 +85,16 @@ selftest-operators, selftest-shrink, selftest-property, selftest-cli-write).
 See / persist generated cases (no TOON impls needed):
      node --experimental-strip-types gen/cli.ts preview --per 3
      node --experimental-strip-types gen/cli.ts write   --per 20   # -> probe/generated/{cases}.json + provenance.jsonl
+
+   MIND THE TWO "generated" DIRECTORIES — THEY ARE NOT THE SAME PLACE.
+     probe/generated/         SCRATCH. Gitignored, regenerable, not corpus.
+     probe/cases/generated/   CORPUS BUCKET. Promoted cases, with sidecars.
+   A promotion written to the first one lands in a GITIGNORED directory the corpus
+   loader never looks in, so the case is simply invisible — the loader reports the
+   old count with no complaint, and only the selftest tripwires go red. This
+   happened on 2026-08-09. The web UI commits into gitignored paths quite happily,
+   so the usual safety net does not apply to a browser-only workflow. Verify a
+   promoted case at the path the LOADER reads, not just that it exists.
 
 Fuzz the differential matrix (FULL ENV — needs the TOON impls installed, same as
 the Rust adapter track). ACTIVATE THE VENV FIRST; the first property run was

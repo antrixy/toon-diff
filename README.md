@@ -104,13 +104,21 @@ selftest walkthrough in [RUN.md](./RUN.md).
 ## Status
 
 v0.3. The corpus lives in provenance buckets with 13 hand-designed seeds as
-the mutation substrate; a deterministic generator with a ddmin shrinker fuzzes
-the matrix (v0.2); divergences are *explained* — spec-rule citations,
-changelog dates, and a per-side verdict (behind / violates-claimed /
-violates-current, computed from each implementation's own claimed spec
-version) — and summarized in an N×N grid (v0.3).
+the mutation substrate, plus cases the fuzzer found and earned a place for; a
+deterministic generator with a ddmin shrinker fuzzes the matrix (v0.2);
+divergences are *explained* — spec-rule citations, changelog dates, and a
+per-side verdict (behind / violates-claimed / violates-current, computed from
+each implementation's own claimed spec version) — and summarized in an N×N
+grid (v0.3).
 
-Current baseline: 13 cases, 117 pair-checks, 7 divergences, 7 explained.
+Current baseline: 14 cases, 126 pair-checks, 10 divergences, 7 explained.
+The three unexplained are one case — a quoted object key containing `.` that
+toon-rust returns with a `U+0000` prefix ([toon-rust#78](https://github.com/toon-format/toon-rust/issues/78)),
+found by the property layer and promoted into the corpus. They stay unexplained
+until a spec rule is written for them: the registry has no rule covering key
+round-trip fidelity, and attaching an existing one by resemblance is how a
+finding gets mislabelled. The count going 7/7 → 7/10 is the honest reading, not
+a regression.
 Watched upstream: [toon-rust PR #71](https://github.com/toon-format/toon-rust/pull/71)
 (clears the empty-array divergences on merge) and
 [toon#324](https://github.com/toon-format/toon/issues/324) (quoted-scalar fix
