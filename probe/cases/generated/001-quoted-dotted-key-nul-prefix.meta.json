@@ -1,0 +1,9 @@
+{
+  "origin": "property layer, prop:v1/surface-toon@1059844/40, shrunk 1676B -> 21B (2026-08-08); rule independently reproduced by prop:v2 on 2026-08-09",
+  "invariant": "a quoted object key containing \".\" survives a round trip unchanged; toon-rust returns it with a U+0000 prefix, so the key is CORRUPTED, not dropped — decoder-side, rust only",
+  "refs": [
+    "https://github.com/toon-format/toon-rust/issues/78",
+    "handoffs/toon-diff/history/2026-08-08-v04-run-manifest-and-nul-finding.md",
+    "handoffs/toon-diff/history/2026-08-09-v04-instrument-and-digit-prior.md"
+  ]
+}
