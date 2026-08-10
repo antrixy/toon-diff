@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Fifteen files, 679 checks. Run all of them; the counts are promotion
+   Fifteen files, 681 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -21,7 +21,7 @@ From the project root (the folder this file is in):
      node --experimental-strip-types gen/selftest-cli-write.ts         #  20
      node --experimental-strip-types gen/selftest-run-manifest.ts      #  90
      node --experimental-strip-types gen/selftest-finding-log.ts       #  50
-     node --experimental-strip-types probe/selftest-corpus.ts          #  37
+     node --experimental-strip-types probe/selftest-corpus.ts          #  39
      node --experimental-strip-types probe/selftest-grid.ts            #  40
      node --experimental-strip-types probe/selftest-explain.ts         #  48
      node --experimental-strip-types probe/selftest-numeric-domain.ts  #  53
@@ -38,6 +38,18 @@ From the project root (the folder this file is in):
    The mutation substrate is seeds/ only. Fuzz recipes name seeds by corpus
    key ("seeds/NNN-name.json"); replay-case also accepts pre-v0.3 flat names
    from archived sweep baselines.
+
+   probe/cases/generated/ OPENED 2026-08-09 with the toon-rust#78 witness,
+   {"Np":null," .":null}. The bucket split is about PROVENANCE: a hand-written seed
+   and a fuzz-found case promoted into the corpus are different kinds of evidence
+   and must not be counted as one. Ids are unique PER BUCKET, so generated/ numbers
+   from 001 rather than continuing the seeds sequence.
+
+   PROMOTING A CASE MOVES MORE COUNTS THAN YOU EXPECT. This one fired THREE
+   tripwires, not the one predicted: probe/selftest-corpus.ts (case count, and the
+   separate "other buckets are empty" check) and probe/selftest-grid.ts (case count,
+   pair-check arithmetic, AND the rendered header string). Add the case first and
+   read what goes red; do not go looking for the counts by hand.
 
 3c) MUTATION PASSES. Three modules carry one, and each must be re-run when its
    module changes. Both work on scratch copies and never touch the tree:
@@ -56,7 +68,7 @@ From the project root (the folder this file is in):
 4) Run the differential matrix:
      node --experimental-strip-types cli-v2.ts
 
-What to expect: 13 cases tested, 0 quarantined. Case 013 (9007199254740993)
+What to expect: 14 cases tested, 0 quarantined. Case 013 (9007199254740993)
 should DIVERGE on every TS-involving pair (ts->ts, ts->python, python->ts)
 because JS rounds it at JSON.parse before TOON is involved; python->python
 should pass. That asymmetry is the real finding, not a harness bug.
