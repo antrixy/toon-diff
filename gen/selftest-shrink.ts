@@ -332,6 +332,80 @@ const main = async () => {
       anyRaw(bigTree), rBig.text);
   }
 
+  // ---- 9. the ACCUMULATING COMPLEMENT branch of ddmin ---------------------
+  // The case that closes the last hole in this file's mutation pass. Section 5's
+  // giant array is reducible by the subset branch plus linear granularity alone,
+  // so the accumulating complement -- the non-contiguous union the module header
+  // spends fifteen lines justifying -- could be deleted outright with the suite
+  // green. This case can be reduced by NOTHING ELSE.
+  //
+  // The construction, and every clause earns its place:
+  //   * 24 elements in four 6-blocks. Sentinels sit in blocks 0 and 2; blocks 1
+  //     and 3 are pure filler, so the removable material is NON-CONTIGUOUS.
+  //   * The predicate needs all three sentinels, which are spread so that no
+  //     single contiguous partition holds them all -> every SUBSET cut fails.
+  //   * The predicate needs an EVEN length -> single-element DELETE always fails,
+  //     and so does any odd-sized partition removal.
+  //   * Filler is 0 and sentinels are 3-digit, so NULL and SIMPLIFY candidates are
+  //     all LONGER than what they replace and the strictly-smaller gate refuses
+  //     them. HOIST fails because the predicate requires an array.
+  //   * What DOES work: remove block 1 (18 left, even, sentinels intact), commit,
+  //     then remove block 3 as well (12 left, even) -- a committed union of two
+  //     NON-ADJACENT partitions, which is precisely the accumulation step.
+  {
+    const A = 101, B = 102, C = 103, F = 0;
+    const arr: number[] = new Array(24).fill(F);
+    arr[0] = A; arr[12] = B; arr[17] = C;
+    const big = JSON.stringify(arr);
+
+    const valsOf = (t: string): number[] | null => {
+      const n = parse(t);
+      if (!isArray(n)) return null;
+      const out: number[] = [];
+      for (const e of n) { if (!isRawNum(e)) return null; out.push(Number(lexemeOf(e))); }
+      return out;
+    };
+    const interesting = (t: string) => {
+      const v = valsOf(t);
+      if (!v) return false;
+      return v.length % 2 === 0 && v.includes(A) && v.includes(B) && v.includes(C);
+    };
+
+    check("non-contiguous case is interesting on entry", interesting(big));
+
+    // Control 1: parity means no single element can be dropped.
+    let singleWins = 0;
+    for (let i = 0; i < arr.length; i++) {
+      const cand = arr.filter((_e, j) => j !== i);
+      if (interesting(JSON.stringify(cand))) singleWins++;
+    }
+    check("no single-element deletion keeps it interesting", singleWins === 0, `wins=${singleWins}`);
+
+    // Control 2: the sentinel spread means no contiguous partition stands alone.
+    let subsetWins = 0;
+    for (let n = 2; n <= arr.length; n++) {
+      for (let i = 0; i < n; i++) {
+        const s = Math.floor((i * arr.length) / n), e = Math.floor(((i + 1) * arr.length) / n);
+        if (e - s === arr.length) continue;
+        if (e > s && interesting(JSON.stringify(arr.slice(s, e)))) subsetWins++;
+      }
+    }
+    check("no contiguous SUBSET cut keeps it interesting", subsetWins === 0, `wins=${subsetWins}`);
+
+    const r = await shrink(big, interesting, { maxChecks: 200_000 });
+    const outVals = valsOf(r.text)!;
+    check("the accumulating complement reduces a case nothing else can",
+      outVals.length < arr.length, `len ${arr.length} -> ${outVals.length}`);
+    check("the reduction is substantial, not a token cut",
+      outVals.length <= 8, `len ${outVals.length}`);
+    check("the reduced case still satisfies the predicate", interesting(r.text));
+    check("both non-contiguous filler blocks were removed",
+      outVals.filter((v) => v === F).length <= 4, r.text);
+    const again = await shrink(r.text, interesting, { maxChecks: 200_000 });
+    check("the non-contiguous result is 1-minimal",
+      again.text === r.text && again.steps === 0, again.text);
+  }
+
   console.log(fails === 0
     ? `\nSHRINKER PROVEN: ${total} checks pass. Reduces to minimal (incl. non-contiguous groups), preserves the failure, never slips between bugs, honours its budget, and never rebuilds a number lexeme.`
     : `\nSHRINKER BROKEN: ${fails} check(s) failed.`);

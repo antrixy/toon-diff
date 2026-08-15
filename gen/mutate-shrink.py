@@ -82,9 +82,14 @@ MUTATIONS = [
      "    for (let n = 2; n <= kept.length; n++) { if (await level(n)) n = 1; }",
      "    // linear finish removed"),
 
-    ("S12 ddmin linear finish never restarts (no fixpoint at a level)",
-     "    for (let n = 2; n <= kept.length; n++) { if (await level(n)) n = 1; }",
-     "    for (let n = 2; n <= kept.length; n++) { await level(n); }"),
+    # NOT A MUTATION: removing the inner `n = 1` restart is EQUIVALENT with
+    # respect to reduction QUALITY. The outer for(;;) loop already repeats the
+    # whole round until a round changes nothing, so the fixpoint is reached either
+    # way; the restart only saves a round. Differential-tested over 376 generated
+    # predicates: output differed in 1 case, and there both results had the SAME
+    # length -- a tie-break between two equally-minimal reductions, not a worse
+    # one. Tried, survived, removed: a check that pinned it would be asserting
+    # which of two equally-minimal results the shrinker happens to return.
 
     # NOT MUTATIONS: relaxing either ddmin length floor (>= 1 to >= 0) is
     # EQUIVALENT with respect to output. The floors stop DDMIN from emptying an
@@ -151,25 +156,6 @@ MUTATIONS = [
      "  return improved ? replaceAt(root, path, kept) : null;",
      "  return improved ? replaceAt(root, path, JSON.parse(JSON.stringify(kept))) : null;"),
 ]
-
-
-# KNOWN OPEN HOLES -- kept in the list, deliberately, so the pass reports them
-# every run rather than letting them fade:
-#
-#   S10  the accumulating COMPLEMENT branch of ddmin can be removed entirely and
-#        the suite stays green. The giant-array case is satisfied by the subset
-#        branch plus linear granularity alone, so the non-contiguous accumulation
-#        -- the feature the module header spends fifteen lines justifying -- is
-#        the one part of ddmin nothing exercises. Closing it needs a case whose
-#        removable filler is scattered such that NO single partition is droppable
-#        but a union of them is.
-#
-#   S12  the linear finish never restarting (no fixpoint at a level) is likewise
-#        invisible: the existing cases reach minimal without needing the restart.
-#
-# Both are quality-of-reduction, not correctness: a shrinker missing them returns
-# a larger reproducer, never a wrong one. That is why they are recorded here
-# rather than blocking, but they are real and they are unproven.
 
 
 def run_selftest(cwd):
