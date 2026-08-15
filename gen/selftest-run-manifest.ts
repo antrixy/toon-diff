@@ -280,6 +280,62 @@ const healthy = (t: Partial<Tally> = {}): RunState => state({}, {
     divergenceSignature("field-3-changed") !== divergenceSignature("field-9-changed"));
 }
 
+// ---- 10. a run that compared nothing is not a clean run ------------------
+// The zero-attempt hole. HARNESS-DEAD guards itself with checksAttempted > 0,
+// correctly, and nothing downstream caught the guarded-out case: a run that
+// generated every planned case and compared NONE of them classified RAN-CLEAN
+// and exited 0. Reachable via a generator regression -- fuzz.ts skips a case
+// whose text fails ingest, so if every case fails, the inner loop never runs
+// while casesGenerated still reaches casesPlanned.
+
+{
+  const noneIngested = healthy({
+    casesIngested: 0, generatorMalformed: 140, checksAttempted: 0, checksCompleted: 0,
+  });
+  check("every case malformed, zero pair-checks, classifies NO-EVIDENCE",
+    classify(noneIngested) === "NO-EVIDENCE");
+  check("NO-EVIDENCE exits 3, not 0", exitCodeFor(noneIngested) === EXIT.UNTRUSTWORTHY);
+  check("a run that compared nothing is never RAN-CLEAN",
+    classify(noneIngested) !== "RAN-CLEAN");
+
+  // The distinction restated as the comparison the module exists to make.
+  check("comparing nothing and comparing everything get DIFFERENT exit codes",
+    exitCodeFor(noneIngested) !== exitCodeFor(healthy()));
+
+  // ORDERING. NO-EVIDENCE must not steal states the earlier rules own, and must
+  // not fire on a run that attempted checks and had them all fail.
+  check("a bad invocation still outranks NO-EVIDENCE",
+    classify(state({ casesPlanned: 0 }, { checksAttempted: 0 })) === "DID-NOT-RUN");
+  check("a quarantined adapter still outranks NO-EVIDENCE",
+    classify(healthy({ checksAttempted: 0, checksCompleted: 0, quarantined: ["python"] }))
+      === "HARNESS-DEAD");
+  check("nothing generated is DID-NOT-RUN, not NO-EVIDENCE",
+    classify(state({ casesPlanned: 5 }, { casesGenerated: 0, checksAttempted: 0 })) === "DID-NOT-RUN");
+  check("attempted-but-none-completed stays HARNESS-DEAD, not NO-EVIDENCE",
+    classify(healthy({ checksAttempted: 9, checksCompleted: 0, errors: 9 })) === "HARNESS-DEAD");
+
+  // The rule reads checksAttempted, not casesIngested: a single completed check
+  // is evidence, however thin, and must not be reclassified.
+  check("one attempted check is enough to leave NO-EVIDENCE",
+    classify(healthy({ checksAttempted: 1, checksCompleted: 1 })) === "RAN-CLEAN");
+
+  // A short run that also compared nothing: NO-EVIDENCE is the more specific
+  // complaint and precedes INCOMPLETE.
+  check("compared-nothing outranks incompleteness",
+    classify(healthy({ casesGenerated: 3, checksAttempted: 0, checksCompleted: 0 }))
+      === "NO-EVIDENCE");
+
+  const rendered = renderManifest(noneIngested);
+  check("the manifest states the NO-EVIDENCE verdict and its exit code",
+    rendered.includes("verdict:   NO-EVIDENCE (exit 3)"));
+  check("the manifest still shows the zero pair-checks that caused it",
+    rendered.includes("0 attempted"));
+  // The legacy line is unchanged by design -- it is the pre-split shape and
+  // cannot carry the new verdict. That is exactly why it is no longer the verdict.
+  check("the legacy line alone would still have read as clean",
+    legacyLine(noneIngested).startsWith("NO DIVERGENCES |"));
+}
+
 // ---- 6. a real clean run still passes ------------------------------------
 // A guard that cannot say yes is not a guard.
 
@@ -308,7 +364,7 @@ const healthy = (t: Partial<Tally> = {}): RunState => state({}, {
 // would satisfy neither property while looking identical from outside.
 
 {
-  const VERDICTS: Verdict[] = ["DID-NOT-RUN", "HARNESS-DEAD", "INCOMPLETE", "RAN-FOUND", "RAN-CLEAN"];
+  const VERDICTS: Verdict[] = ["DID-NOT-RUN", "HARNESS-DEAD", "NO-EVIDENCE", "INCOMPLETE", "RAN-FOUND", "RAN-CLEAN"];
 
   check("every rule carries a known verdict",
     VERDICT_RULES.every((r) => VERDICTS.includes(r.verdict)));
@@ -363,7 +419,8 @@ const healthy = (t: Partial<Tally> = {}): RunState => state({}, {
   check("only RAN-CLEAN exits 0",
     VERDICTS.filter((v) => EXIT_FOR[v] === EXIT.CLEAN).join() === "RAN-CLEAN");
   check("untrustworthy verdicts share exit 3 and are distinct from 0 and 1",
-    EXIT_FOR["DID-NOT-RUN"] === 3 && EXIT_FOR["HARNESS-DEAD"] === 3 && EXIT_FOR["INCOMPLETE"] === 3);
+    EXIT_FOR["DID-NOT-RUN"] === 3 && EXIT_FOR["HARNESS-DEAD"] === 3 &&
+    EXIT_FOR["NO-EVIDENCE"] === 3 && EXIT_FOR["INCOMPLETE"] === 3);
 }
 
 // ---- 8. NaN never reaches a clean verdict --------------------------------
@@ -418,6 +475,6 @@ const healthy = (t: Partial<Tally> = {}): RunState => state({}, {
 }
 
 console.log(failures === 0
-  ? `\nRUN MANIFEST PROVEN: ${total} checks pass. A run that did not happen, did not finish, or ran against a dead harness cannot report as a clean sweep.`
+  ? `\nRUN MANIFEST PROVEN: ${total} checks pass. A run that did not happen, did not finish, compared nothing, or ran against a dead harness cannot report as a clean sweep.`
   : `\nRUN MANIFEST BROKEN: ${failures} of ${total} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

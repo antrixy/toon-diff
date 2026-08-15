@@ -92,6 +92,25 @@ MUTATIONS = [
     ("M12 legacy finding total silently redefined",
      "  return t.divergences + t.errors;",
      "  return t.divergences;"),
+
+    ("M21 zero-attempt hole reopened (the pre-fix behaviour)",
+     '    verdict: "NO-EVIDENCE",\n    when: (s) => s.tally.checksAttempted < 1,',
+     '    verdict: "NO-EVIDENCE",\n    when: () => false,'),
+
+    ("M22 NO-EVIDENCE downgraded to exit 0",
+     '  "NO-EVIDENCE": EXIT.UNTRUSTWORTHY,',
+     '  "NO-EVIDENCE": EXIT.CLEAN,'),
+
+    ("M23 NO-EVIDENCE widened to steal a thin but real run",
+     "    when: (s) => s.tally.checksAttempted < 1,",
+     "    when: (s) => s.tally.checksAttempted < 2,"),
+
+    # NOT A MUTATION: swapping checksAttempted for checksCompleted in the
+    # NO-EVIDENCE rule is EQUIVALENT, because HARNESS-DEAD precedes it and owns
+    # every (attempted > 0, completed === 0) state. The two predicates can only
+    # diverge on (attempted === 0, completed > 0), which no tally can reach.
+    # Tried, survived, removed -- a check written to kill it would be pinning
+    # behaviour on an unreachable state, which is worse than the surviving mutant.
 ]
 
 

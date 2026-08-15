@@ -16,6 +16,9 @@
 //      pair-check count as a divergence haul and exits 1.
 //   3. RAN DEGENERATE. Cases generated, harness alive, but the findings are one
 //      known class repeated. Reported identically to useful evidence.
+//   4. RAN WITHOUT COMPARING. Every generated case failed ingest, so the pair
+//      loop never executed. casesGenerated == casesPlanned, zero pair-checks,
+//      and the run reported a clean sweep having compared nothing.
 //
 // A generator that silently fails to generate must not look like one that found
 // nothing. That is the whole obligation, and it is why the exit codes are split:
@@ -44,6 +47,7 @@ export const EXIT = {
 export type Verdict =
   | "DID-NOT-RUN"
   | "HARNESS-DEAD"
+  | "NO-EVIDENCE"
   | "INCOMPLETE"
   | "RAN-FOUND"
   | "RAN-CLEAN";
@@ -51,6 +55,7 @@ export type Verdict =
 export const EXIT_FOR: Record<Verdict, number> = {
   "DID-NOT-RUN": EXIT.UNTRUSTWORTHY,
   "HARNESS-DEAD": EXIT.UNTRUSTWORTHY,
+  "NO-EVIDENCE": EXIT.UNTRUSTWORTHY,
   "INCOMPLETE": EXIT.UNTRUSTWORTHY,
   "RAN-FOUND": EXIT.FOUND,
   "RAN-CLEAN": EXIT.CLEAN,
@@ -383,6 +388,25 @@ export interface RunState {
  * a dead python worker as a bad invocation, which points the reader at their
  * command line instead of their venv. Found by running the driver, not by
  * reading it.
+ *
+ * NO-EVIDENCE COVERS THE ZERO-ATTEMPT HOLE. HARNESS-DEAD guards itself with
+ * `checksAttempted > 0`, correctly -- a run that attempted nothing has not proven
+ * an adapter dead. But nothing downstream caught the guarded-out case, so a run
+ * that generated every planned case and compared NONE of them fell through to
+ * RAN-CLEAN and exited 0. The reachable path is a generator regression: fuzz.ts
+ * skips a case whose text fails ingest, so if every case fails, the pair loop
+ * never executes and casesGenerated still equals casesPlanned.
+ *
+ * It is a separate verdict rather than a third DID-NOT-RUN clause for the same
+ * reason the canary split exists: the plan was fine, the harness was alive, and
+ * the generator is what broke. Blaming the invocation would send the reader to
+ * their command line for a defect in gen/.
+ *
+ * It reads checksAttempted, not checksCompleted. The two are interchangeable
+ * HERE only because HARNESS-DEAD precedes and owns every (attempted > 0,
+ * completed === 0) state; attempted is chosen because it does not depend on that
+ * ordering to be correct. The mutation pass records the swap as an equivalent
+ * mutant rather than a killed one.
  */
 export const VERDICT_RULES: readonly { verdict: Verdict; when: (s: RunState) => boolean }[] = [
   {
@@ -398,6 +422,10 @@ export const VERDICT_RULES: readonly { verdict: Verdict; when: (s: RunState) => 
   {
     verdict: "DID-NOT-RUN",
     when: (s) => s.tally.casesGenerated < 1,
+  },
+  {
+    verdict: "NO-EVIDENCE",
+    when: (s) => s.tally.checksAttempted < 1,
   },
   {
     verdict: "INCOMPLETE",
