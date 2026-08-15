@@ -51,12 +51,18 @@ From the project root (the folder this file is in):
    pair-check arithmetic, AND the rendered header string). Add the case first and
    read what goes red; do not go looking for the counts by hand.
 
-3c) MUTATION PASSES. Three modules carry one, and each must be re-run when its
-   module changes. All three work on scratch copies and never touch the tree:
+3c) MUTATION PASSES. Four modules carry one, and each must be re-run when its
+   module changes. All four work on scratch copies and never touch the tree:
 
-     python3 gen/mutate-run-manifest.py   # all 20 mutations killed
+     python3 gen/mutate-run-manifest.py   # all 23 mutations killed
      python3 gen/mutate-finding-log.py    # all 18 mutations killed
      python3 gen/mutate-property.py       # all 14 mutations killed
+     python3 oracle/mutate-oracle.py      # all 23 mutations killed
+
+   oracle/mutate-oracle.py covers BOTH oracle paths and runs both oracle
+   selftests: canonicalize.ts + compare.ts (the superseded v1 path) and
+   ingest.ts (v2 — the one gen/fuzz.ts imports, and therefore the one that
+   decides every live PASS and FAIL).
 
    A SURVIVED line is a hole in the corresponding selftest, not a harmless edit.
    A SKIPPED line means a mutation's anchor text no longer exists in the module,
