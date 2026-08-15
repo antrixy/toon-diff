@@ -5,11 +5,13 @@
 // exact-value number semantics that let 010 and 013 leave quarantine.
 // Run: node --experimental-strip-types oracle/selftest-numbers.ts
 
-import { ingest, canonical, equal, equalRaw, canonicalNumber } from "./ingest.ts";
+import { ingest, canonical, equal, equalRaw, canonicalNumber, isNum } from "./ingest.ts";
 
 let failures = 0;
+let total = 0;
 function check(label: string, got: boolean, want: boolean) {
   const ok = got === want;
+  total++;
   if (!ok) failures++;
   console.log(`${ok ? "  ok  " : " FAIL "} ${label}  (got ${got}, want ${want})`);
 }
@@ -27,6 +29,38 @@ check("missing key != explicit null (almost-uniform trap)", eq('{"a":3}', '{"a":
 check("array order is significant", eq("[1,2]", "[2,1]"), false);
 check("empty object != empty array", eq("{}", "[]"), false);
 check("combining e+U+0301 != precomposed U+00E9 (no NFC)", eq('{"s":"e\\u0301"}', '{"s":"\\u00e9"}'), false);
+
+console.log("\n— arrays are transparent to key normalization —");
+// The v1 suite passed with a canonicalizer that stopped recursing at the array
+// boundary, because every key-order case nested an object inside an OBJECT.
+// An array of uniform objects IS the table, so the untested shape was the
+// common one. Checked here directly rather than caught by accident.
+check("key order inside an array element ignored", eq('[{"a":1,"b":2}]', '[{"b":2,"a":1}]'), true);
+check("key order ignored in a table-shaped value", eq('{"r":[{"a":1,"b":2}]}', '{"r":[{"b":2,"a":1}]}'), true);
+check("key order ignored two containers deep", eq('{"r":[[{"a":1,"b":2}]]}', '{"r":[[{"b":2,"a":1}]]}'), true);
+check("differing values inside an array element still caught", eq('[{"a":1}]', '[{"a":2}]'), false);
+check("row order in an array of objects is still significant",
+  eq('[{"a":1},{"a":2}]', '[{"a":2},{"a":1}]'), false);
+check("nested array order is still significant", eq('{"r":[[1,2]]}', '{"r":[[2,1]]}'), false);
+
+console.log("\n— the number tag cannot be forged by input —");
+// ingest.ts asserts in a comment that the Symbol tag is collision-proof: that
+// JSON.parse cannot produce a Symbol key, so no real object can be mistaken for
+// a number node. That was a CLAIM, exercised by nothing. Swapping the Symbol for
+// a string key passed the entire suite while making {"__num":"1"} compare EQUAL
+// to the number 1 -- a false PASS, which compare.ts names as the worst failure
+// mode this tool has. These checks turn the claim into a test.
+check("an object keyed __num is NOT read as a number node",
+  isNum(ingest('{"__num":"1"}')), false);
+check("an object keyed __num does not equal the number it mimics",
+  eq('{"x":{"__num":"1"}}', '{"x":1}'), false);
+check("an object keyed __num is still an ordinary object (self-compares)",
+  eq('{"x":{"__num":"1"}}', '{"x":{"__num":"1"}}'), true);
+check("the __num key survives canonicalization as a quoted key",
+  canonical(ingest('{"__num":"1"}')).includes('"__num"'), true);
+// The same guard from the other side: a number must not be mistaken for an object.
+check("a number node is not confused with an object carrying the tag's value",
+  eq('{"x":1}', '{"x":{"__num":"1"}}'), false);
 
 console.log("\n— exact-value number semantics (the v2 payload) —");
 // Value-equal: representation differs, value identical -> MUST be equal.
@@ -48,6 +82,7 @@ console.log("\n— canonicalNumber unit checks (arbitrary precision, no float) �
 function cn(lex: string, want: string) {
   const got = canonicalNumber(lex);
   const ok = got === want;
+  total++;
   if (!ok) failures++;
   console.log(`${ok ? "  ok  " : " FAIL "} canonicalNumber("${lex}") = "${got}"  (want "${want}")`);
 }
@@ -66,6 +101,6 @@ check("010: negZero value-equals zero (value policy)",
   equal(ingest('-0'), ingest('0')), true);
 
 console.log(failures === 0
-  ? "\nV2 ORACLE PROVEN: all checks pass. 010 and 013 are now testable losslessly."
+  ? `\nV2 ORACLE PROVEN: ${total} checks pass. 010 and 013 are testable losslessly, arrays are transparent to key order, and the number tag cannot be forged by input.`
   : `\nV2 ORACLE BROKEN: ${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

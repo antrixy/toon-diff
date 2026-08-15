@@ -9,8 +9,10 @@ import { ingestionFidelity } from "./compare.ts";
 import type { Json } from "./canonicalize.ts";
 
 let failures = 0;
+let total = 0;
 function check(label: string, got: boolean, want: boolean) {
   const ok = got === want;
+  total++;
   if (!ok) failures++;
   console.log(`${ok ? "  ok  " : " FAIL "} ${label}  (got ${got}, want ${want})`);
 }
@@ -38,6 +40,24 @@ check("empty object != empty array",
 check("combining e+U+0301 != precomposed U+00E9 (NO Unicode normalization)",
   equal({ s: "e\u0301" } as Json, { s: "\u00e9" } as Json), false);
 
+// ---- arrays are transparent to key normalization -------------------------
+// Every key-order check above nests an object inside an OBJECT. None puts one
+// inside an ARRAY, so a canonicalizer that stopped recursing at the array
+// boundary passed the whole suite. That is the dominant shape in a tabular
+// format -- an array of uniform objects IS the table -- so the untested case
+// was the common one. Found by mutation (O1), not by reading.
+check("key order inside an array element ignored",
+  equal([{ a: 1, b: 2 }] as Json, [{ b: 2, a: 1 }] as Json), true);
+check("key order ignored in a table-shaped value (array of objects under a key)",
+  equal({ rows: [{ a: 1, b: 2 }] } as Json, { rows: [{ b: 2, a: 1 }] } as Json), true);
+check("key order ignored two containers deep (object > array > array > object)",
+  equal({ r: [[{ a: 1, b: 2 }]] } as Json, { r: [[{ b: 2, a: 1 }]] } as Json), true);
+// The negative controls: recursing through arrays must not blunt the comparison.
+check("differing VALUES inside an array element are still caught",
+  equal([{ a: 1, b: 2 }] as Json, [{ a: 1, b: 3 }] as Json), false);
+check("row order in an array of objects is still significant",
+  equal([{ a: 1 }, { a: 2 }] as Json, [{ a: 2 }, { a: 1 }] as Json), false);
+
 // ---- ingestion fidelity guard -------------------------------------------
 // These three CANNOT be faithfully ingested by native JSON -> must be quarantined.
 check("quarantine: -0",            ingestionFidelity("-0").faithful, false);
@@ -57,6 +77,6 @@ check("no false positive: digits inside string \"e\\u0301\"",
   ingestionFidelity('{"s":"e\\u0301"}').faithful, true);
 
 console.log(failures === 0
-  ? "\nORACLE PROVEN: all checks pass."
+  ? `\nORACLE PROVEN: ${total} checks pass. Key order normalizes THROUGH arrays; the fidelity guard quarantines exactly the unrepresentable literals.`
   : `\nORACLE BROKEN: ${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
