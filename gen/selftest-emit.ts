@@ -22,8 +22,10 @@ import { equalRaw } from "../oracle/ingest.ts";
 
 const corpusSeeds = loadCorpus().byBucket.seeds;
 let failures = 0;
+let total = 0;
 
 function check(label: string, ok: boolean) {
+  total++;
   if (!ok) failures++;
   console.log(`${ok ? "  ok  " : " FAIL "} ${label}`);
 }
@@ -59,7 +61,51 @@ const huge = '{"b":1000000000000000000000000000001}';
 check("huge 10^30+1 survives byte-exact",
   emit(parse(huge)) === huge && emit(parse(huge)).includes("1000000000000000000000000000001"));
 
+console.log("\n— BYTE-exact on canonical input (the oracle structurally cannot see this) —");
+// WHY THIS SECTION EXISTS. Every check above is judged by the ORACLE, and the
+// oracle's equality deliberately ignores object key order and JSON whitespace --
+// two implementations that differ only there are value-equal, which is correct
+// for a comparison engine and useless for proving a REPRESENTATION guarantee.
+// So no oracle-judged check can ever see emit's second invariant break. Sorting
+// emit's keys, reversing them, or padding the separators all passed the suite.
+//
+// These compare BYTES against a hand-built canonical case: compact separators,
+// plain-ASCII strings, already in the form JSON.stringify produces, so byte
+// equality is the right lens here even though it would be the wrong lens on an
+// arbitrary seed (a \uXXXX escape vs its raw code point is a legitimate shift).
+{
+  const roundTrips = (s: string) => emit(parse(s)) === s;
+
+  // KEY ORDER. Three keys, deliberately neither sorted nor reverse-sorted, so
+  // the case distinguishes "sorted" from "reversed" rather than catching only one.
+  const keyed = '{"b":1,"c":2,"a":3}';
+  check("key order survives emit byte-for-byte (not sorted, not reversed)",
+    roundTrips(keyed));
+  check("emit does NOT sort keys", emit(parse(keyed)) !== '{"a":3,"b":1,"c":2}');
+
+  // ALL FIVE JSON VALUE TYPES. The seed corpus contains no real boolean and no
+  // real null anywhere -- 007 holds the STRINGS "true" and "null", which is the
+  // lookalike case, not the thing itself -- so emit's handling of two of the five
+  // types was never exercised. Inverting every boolean passed the suite.
+  check("true emits as true", emit(parse("true")) === "true");
+  check("false emits as false", emit(parse("false")) === "false");
+  check("booleans are not swapped", emit(parse('{"t":true,"f":false}')) === '{"t":true,"f":false}');
+  check("null emits as null", emit(parse("null")) === "null");
+  check("null survives inside a structure", roundTrips('{"a":null,"b":[null]}'));
+
+  // SEPARATORS. Whitespace is legal JSON and value-equal, so the oracle cannot
+  // see it -- but it inflates every byte count the shrinker and the manifest report.
+  check("array separators stay compact", roundTrips("[1,2,3]"));
+  check("object separators stay compact", roundTrips('{"a":1,"b":2}'));
+  check("nested separators stay compact", roundTrips('{"r":[{"a":1,"b":2},{"a":3,"b":4}]}'));
+
+  // The whole shape at once, including the differential-critical lexeme.
+  const everything = '{"z":true,"y":false,"x":null,"w":[1,2],"v":"s","u":9007199254740993}';
+  check("a case covering all five value types round-trips byte-exact",
+    roundTrips(everything));
+}
+
 console.log(failures === 0
-  ? "\nEMIT SUBSTRATE PROVEN: parse->emit never corrupts a case. Safe to mutate on top of it."
+  ? `\nEMIT SUBSTRATE PROVEN: ${total} checks pass. parse->emit is value-faithful on every seed and byte-exact on key order, separators, and all five value types. Safe to mutate on top of it.`
   : `\nEMIT SUBSTRATE BROKEN: ${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);
