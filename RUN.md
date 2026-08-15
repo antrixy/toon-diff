@@ -59,16 +59,7 @@ From the project root (the folder this file is in):
      python3 gen/mutate-property.py       # all 14 mutations killed
      python3 oracle/mutate-oracle.py      # all 23 mutations killed
      python3 gen/mutate-emit.py           # all 12 mutations killed
-     python3 gen/mutate-shrink.py         # 20 of 22 killed -- 2 KNOWN OPEN
-
-   gen/mutate-shrink.py is the one pass that does NOT come back clean, and that is
-   deliberate rather than pending. S10 and S12 show that ddmin's accumulating
-   complement branch and its linear-finish restart can both be removed with the
-   suite green: the existing cases reach minimal without them. Both are
-   quality-of-reduction rather than correctness -- a shrinker missing them returns
-   a LARGER reproducer, never a wrong one -- so they are recorded in the script's
-   header and reported every run instead of being silently dropped from the list.
-   Treat a change in that count, in either direction, as something to explain.
+     python3 gen/mutate-shrink.py         # all 21 mutations killed
 
    A NOTE ON JUDGES, from gen/mutate-emit.py. gen/selftest-emit.ts is judged by
    the ORACLE, whose equality ignores object key order and JSON whitespace -- so
