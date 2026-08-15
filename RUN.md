@@ -102,12 +102,15 @@ wasted on a dead python worker:
      node --experimental-strip-types gen/fuzz.ts --per 200                 # mutation cases
      node --experimental-strip-types gen/fuzz.ts --mode prop --size 40     # property cases
 
-Every run ends with a RUN MANIFEST and one of five verdicts. READ THE VERDICT,
+Every run ends with a RUN MANIFEST and one of six verdicts. READ THE VERDICT,
 not the finding count:
      RAN-CLEAN     exit 0   ran as planned, nothing diverged
      RAN-FOUND     exit 1   ran as planned, divergences or errors
      DID-NOT-RUN   exit 3   the plan generated no cases (check numeric args)
      HARNESS-DEAD  exit 3   an adapter failed its canary (check the venv)
+     NO-EVIDENCE   exit 3   cases generated but no pair-check ran (check the
+                            generator-malformed count; a generator emitting
+                            invalid JSON skips every case)
      INCOMPLETE    exit 3   generated fewer cases than planned, uncapped
 
 Exit 3 is not a result. Exit 0 means the run happened and was clean, never that
