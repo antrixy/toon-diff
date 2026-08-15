@@ -51,13 +51,14 @@ From the project root (the folder this file is in):
    pair-check arithmetic, AND the rendered header string). Add the case first and
    read what goes red; do not go looking for the counts by hand.
 
-3c) MUTATION PASSES. Five modules carry one, and each must be re-run when its
-   module changes. All five work on scratch copies and never touch the tree:
+3c) MUTATION PASSES. Six modules carry one, and each must be re-run when its
+   module changes. All six work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 23 mutations killed
      python3 gen/mutate-finding-log.py    # all 18 mutations killed
      python3 gen/mutate-property.py       # all 14 mutations killed
      python3 oracle/mutate-oracle.py      # all 23 mutations killed
+     python3 gen/mutate-emit.py           # all 12 mutations killed
      python3 gen/mutate-shrink.py         # 20 of 22 killed -- 2 KNOWN OPEN
 
    gen/mutate-shrink.py is the one pass that does NOT come back clean, and that is
@@ -68,6 +69,13 @@ From the project root (the folder this file is in):
    a LARGER reproducer, never a wrong one -- so they are recorded in the script's
    header and reported every run instead of being silently dropped from the list.
    Treat a change in that count, in either direction, as something to explain.
+
+   A NOTE ON JUDGES, from gen/mutate-emit.py. gen/selftest-emit.ts is judged by
+   the ORACLE, whose equality ignores object key order and JSON whitespace -- so
+   no check in it could ever see emit's key-order invariant break. Sorting emit's
+   keys passed the suite. When a selftest borrows a judge, check what that judge
+   is entitled to ignore, because that set is exactly the set of properties the
+   selftest cannot prove no matter how many cases it runs.
 
    oracle/mutate-oracle.py covers BOTH oracle paths and runs both oracle
    selftests: canonicalize.ts + compare.ts (the superseded v1 path) and
