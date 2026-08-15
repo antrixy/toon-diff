@@ -51,13 +51,23 @@ From the project root (the folder this file is in):
    pair-check arithmetic, AND the rendered header string). Add the case first and
    read what goes red; do not go looking for the counts by hand.
 
-3c) MUTATION PASSES. Four modules carry one, and each must be re-run when its
-   module changes. All four work on scratch copies and never touch the tree:
+3c) MUTATION PASSES. Five modules carry one, and each must be re-run when its
+   module changes. All five work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 23 mutations killed
      python3 gen/mutate-finding-log.py    # all 18 mutations killed
      python3 gen/mutate-property.py       # all 14 mutations killed
      python3 oracle/mutate-oracle.py      # all 23 mutations killed
+     python3 gen/mutate-shrink.py         # 20 of 22 killed -- 2 KNOWN OPEN
+
+   gen/mutate-shrink.py is the one pass that does NOT come back clean, and that is
+   deliberate rather than pending. S10 and S12 show that ddmin's accumulating
+   complement branch and its linear-finish restart can both be removed with the
+   suite green: the existing cases reach minimal without them. Both are
+   quality-of-reduction rather than correctness -- a shrinker missing them returns
+   a LARGER reproducer, never a wrong one -- so they are recorded in the script's
+   header and reported every run instead of being silently dropped from the list.
+   Treat a change in that count, in either direction, as something to explain.
 
    oracle/mutate-oracle.py covers BOTH oracle paths and runs both oracle
    selftests: canonicalize.ts + compare.ts (the superseded v1 path) and
