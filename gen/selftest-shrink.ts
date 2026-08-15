@@ -31,7 +31,9 @@ import type { Adapter } from "../adapters/contract.ts";
 import { ingest } from "../oracle/ingest.ts";
 
 let fails = 0;
+let total = 0;
 const check = (label: string, ok: boolean, extra = "") => {
+  total++;
   if (!ok) fails++;
   console.log(`${ok ? "  ok  " : " FAIL "} ${label}${extra ? "  " + extra : ""}`);
 };
@@ -219,8 +221,119 @@ const main = async () => {
     console.log(`       ${r.startBytes}B(len ${N}) -> ${r.endBytes}B(len ${outLen}) in ${r.steps} step(s), ${r.checks} checks`);
   }
 
+  // ---- 6. the contract on entry and on the budget -------------------------
+  // shrink()'s docstring promises two things nothing exercised: a case that is
+  // NOT interesting on entry is returned unchanged rather than "reduced", and
+  // maxChecks is a real ceiling. Both matter because every case filed upstream
+  // is a shrunk case: a reduction of something that never failed is a false
+  // reproducer, and an unbounded shrink is a hung sweep.
+  {
+    const big = JSON.stringify({ a: [1, 2, 3, 4, 5], b: { c: "xxxxxxxxxx" } });
+
+    const never = await shrink(big, () => false, { maxChecks: 200_000 });
+    check("a case that is not interesting on entry is returned unchanged",
+      never.text === big, `steps=${never.steps}`);
+    check("a non-interesting case reports no steps and no checks",
+      never.steps === 0 && never.checks === 0);
+    check("a non-interesting case does not claim to have shrunk anything",
+      never.endBytes === never.startBytes);
+
+    // The ceiling only BINDS on a case the shrinker cannot cut: a predicate true
+    // for the original alone rejects every candidate, so reduceOnce walks the full
+    // path set and the budget is what stops it. A permissive predicate hoists on
+    // the first candidate and never reaches the ceiling at all -- which is why an
+    // earlier version of this check passed against a shrinker with no budget.
+    const stubborn = (t: string) => t === big;
+    for (const max of [5, 25, 100]) {
+      const r = await shrink(big, stubborn, { maxChecks: max });
+      check(`the check budget of ${max} is a real ceiling`, r.checks <= max, `checks=${r.checks}`);
+    }
+    const counted = await shrink(big, stubborn, { maxChecks: 25 });
+    check("checks are actually counted, not left at zero", counted.checks > 0);
+    check("an uncuttable case is returned unchanged", counted.text === big);
+    check("a budgeted run reports the text it actually produced",
+      counted.endBytes === counted.text.length);
+    check("a budgeted run never grows the case", counted.endBytes <= counted.startBytes);
+  }
+
+  // ---- 7. every rung of the strategy ladder does work ---------------------
+  // HOIST was covered by the needle case; NULL, DELETE and SIMPLIFY were not, so
+  // three of the five strategies could be deleted outright with the suite green.
+  // Each case below is interesting ONLY via the rung it names.
+  {
+    // NULL: the failure needs the key present but not its contents.
+    const nullCase = JSON.stringify({ keep: { junk: [1, 2, 3], more: "yyyy" } });
+    const rNull = await shrink(nullCase, (t) => {
+      const o = parse(t);
+      return isObject(o) && "keep" in o;
+    }, { maxChecks: 200_000 });
+    check("NULL collapse empties an irrelevant subtree",
+      rNull.text === '{"keep":null}', rNull.text);
+
+    // DELETE: the failure needs one key; the others must be dropped individually.
+    // Hoisting is unavailable (the predicate reads a key off the root object).
+    // Note the scalar stays 3: replacing it with null would make the case LONGER,
+    // and the strictly-smaller gate correctly refuses that. The point of the check
+    // is that the SIBLINGS go, which only DELETE can do.
+    const delCase = JSON.stringify({ a: 1, b: 2, target: 3, c: 4 });
+    const rDel = await shrink(delCase, (t) => {
+      const o = parse(t);
+      return isObject(o) && "target" in o;
+    }, { maxChecks: 200_000 });
+    check("DELETE drops the sibling keys the failure does not need",
+      rDel.text === '{"target":3}', rDel.text);
+
+    // SIMPLIFY: structure is already minimal; only the scalar can still reduce.
+    // Reaching "" (not just null) is what proves the full target list is used.
+    const simpCase = JSON.stringify({ s: "a long string that should collapse" });
+    const rSimp = await shrink(simpCase, (t) => {
+      const o = parse(t);
+      return isObject(o) && "s" in o && typeof o.s === "string";
+    }, { maxChecks: 200_000 });
+    check("SIMPLIFY reduces a scalar to the simplest value its predicate allows",
+      rSimp.text === '{"s":""}', rSimp.text);
+  }
+
+  // ---- 8. a reduction never rebuilds an element ---------------------------
+  // The module's headline claim: ddmin only ever KEEPS or DROPS existing element
+  // nodes, so a RawNum is never rebuilt and 9007199254740993 is not rounded while
+  // the array around it is minimized. That was asserted in a comment and exercised
+  // by nothing -- and the failure is total rather than subtle, because
+  // JSON.stringify drops the Symbol key carrying the lexeme, so a rebuilt number
+  // node becomes {} outright.
+  //
+  // NOT CHECKED HERE, deliberately: that ddmin refuses to empty an array. The
+  // >= 1 floors stop DDMIN from doing it, but DELETE empties an array one element
+  // at a time anyway, so a predicate that accepts [] lands on [] either way. The
+  // floors change the path, not the result, and a check that pinned them would be
+  // asserting on check counts -- the shrinker's private mechanics, not its output.
+  {
+    const NEEDLE = "9007199254740993";
+    const withBig = JSON.stringify({ rows: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] })
+      .replace("[1,", `[${NEEDLE},`);
+    // The predicate demands an ARRAY still holding the needle alongside at least
+    // one other element, so hoisting to the bare scalar is refused and the array
+    // must actually go through ddmin. Without that, the reduction hoists on its
+    // first candidate and the ddmin path this check exists for is never entered.
+    const rBig = await shrink(withBig, (t) => {
+      const n = parse(t);
+      const rows = isObject(n) ? n.rows : n;
+      return isArray(rows) && rows.length >= 2 && t.includes(NEEDLE);
+    }, { maxChecks: 200_000 });
+    check("a reduction never rounds or rebuilds the targeted lexeme",
+      rBig.text.includes(NEEDLE), rBig.text);
+    const bigTree = parse(rBig.text);
+    const anyRaw = (n: GNode): boolean =>
+      isRawNum(n) ? lexemeOf(n) === NEEDLE
+        : isArray(n) ? n.some(anyRaw)
+        : isObject(n) ? Object.keys(n).some((k) => anyRaw(n[k]))
+        : false;
+    check("the surviving number is still a RawNum, not an object with a lost tag",
+      anyRaw(bigTree), rBig.text);
+  }
+
   console.log(fails === 0
-    ? "\nSHRINKER PROVEN: reduces to minimal (incl. non-contiguous groups), preserves the failure, and never slips between bugs."
+    ? `\nSHRINKER PROVEN: ${total} checks pass. Reduces to minimal (incl. non-contiguous groups), preserves the failure, never slips between bugs, honours its budget, and never rebuilds a number lexeme.`
     : `\nSHRINKER BROKEN: ${fails} check(s) failed.`);
   process.exit(fails === 0 ? 0 : 1);
 };
