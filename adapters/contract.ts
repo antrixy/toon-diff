@@ -65,7 +65,7 @@ export interface ImplClaim {
 /** The set of values an implementation represents EXACTLY, as ingested. */
 export type NumericDomainTag =
   | "f64" // IEEE-754 double: integers exact to +/-2^53
-  | "i64u64f64" // serde_json, arbitrary_precision OFF: exact in [-2^63, 2^64)
+  | "i64u64" // exact in [-2^63, 2^64) and NOWHERE ELSE — no f64 fallback
   | "bignum"; // arbitrary-precision integers: no integer boundary
 
 /**
@@ -152,9 +152,12 @@ export const IMPL_CLAIMS = {
     notes:
       "CORRECTION of earlier 3.2 recon (was wrong — see #76 filing session); fetch-corroborated 2026-07-12. PR #71 bumps README to v3.3: on merge, update version+verified here citing the merge commit",
     numeric: {
-      domain: "i64u64f64",
+      domain: "i64u64",
       domainEvidence:
-        "adapters/RUST-NOTES.md \"Two deliberate serde_json feature choices\": the bridge builds serde_json with arbitrary_precision OFF, so the model is i64/u64/f64 and a value beyond u64 loses precision at serde_json::from_str — deliberate, and symmetric to the TS adapter losing >2^53 at JSON.parse",
+        "MEASURED 2026-08-30, superseding a read of serde_json's model that was never checked against the implementation. A 14-value boundary ladder was decoded through the built bridge (crate toon-format 0.5.0, rustc 1.96.1): every plain integer token in [-2^63, 2^64) comes back an EXACT NUMBER, and every token outside it comes back a LOSSLESS QUOTED STRING — 2^64, 2^64+1, 2^65, 2^100, 2^100+1 and -2^63-1 all stringify, and -2^63 does not. " +
+        "THERE IS NO f64 FALLBACK. The prior evidence line asserted that a value beyond u64 \"loses precision at serde_json::from_str\", symmetric to the TS adapter. THAT IS FALSE: nothing is lost, and the boundary is the i64/u64 window alone rather than its union with the exactly-representable doubles. 2^100 is an exact double and still stringifies, which is the row that settles it. " +
+        "CONSEQUENCE FOR THE CAVEAT BELOW: the divergence on spec/001 is NOT a precision loss and therefore NOT an artifact of our arbitrary_precision-OFF choice — toon-format detects the out-of-range token and stringifies it before serde's number model applies. What remains reportable is documentation only. " +
+        "LIMIT OF THIS PROBE: plain decimal integer tokens only. Whether an EXPONENT-form token (1e30, which \u00a72 permits an encoder to emit for |n| >= 1e21) takes the same path is UNPROBED — settle it before relying on the domain for a wire that could carry one",
       decoderPolicy: null,
       encoderPolicy: null,
       claimsLossless: false,
@@ -162,7 +165,9 @@ export const IMPL_CLAIMS = {
         "toon-rust README: no precision / out-of-range / u64 / 2^53 statement anywhere; numeric handling is implicit via serde_json::Value, and the round-trip examples use small values with no prose losslessness claim",
       verified: "2026-07-25",
       notes:
-        "CAVEAT: the u64 boundary is OUR ADAPTER's arbitrary_precision-OFF choice, not an upstream policy — a loss there is a harness-model fact and must not be reported as an upstream violation. Silent, not self-contradicting (unlike ts). PR #71's scope is v3.3 empty-array/header edge cases and adds no numeric policy, so a #71 merge does not touch this record",
+        "CAVEAT LARGELY DISCHARGED 2026-08-30 by measurement. It read: the u64 boundary is OUR ADAPTER's arbitrary_precision-OFF choice, so a loss there is a harness-model fact. There is NO LOSS — rust returns the exact digits as a quoted string (see domainEvidence), which is \u00a74's \"return a string\" option and the LOSSLESS-FIRST behaviour \u00a74 RECOMMENDS. So the behaviour is upstream's, not the bridge's, and it is the recommended behaviour rather than a defect. " +
+        "WHAT IS STILL REPORTABLE IS DOCUMENTATION ONLY: \u00a74 makes documenting the out-of-range policy a MUST and toon-rust documents none, so decoderPolicy stays null. A filing here should read \"your decoder already does the recommended thing; please say so in the docs\", NOT \"your decoder loses data\". Silent, not self-contradicting (unlike ts). " +
+        "PR #71's scope is v3.3 empty-array/header edge cases and adds no numeric policy, so a #71 merge does not touch this record",
     },
   },
 } as const satisfies Record<string, ImplClaim>;

@@ -12,7 +12,7 @@
  *     merge commit — this test will fail until that edit is made consciously)
  *
  * It also pins the NUMERIC axis, which SPEC.md splits by domain membership:
- *   - domains: the exact-value model each adapter ingests (f64 / i64u64f64 /
+ *   - domains: the exact-value model each adapter ingests (f64 / i64u64 /
  *     bignum), evidenced in-repo, plus the NUMERIC_DOMAINS derivation
  *   - policies: encoder (§3+§2) and decoder (§4) documented out-of-range
  *     behavior recorded SEPARATELY, because they are independent obligations
@@ -40,7 +40,7 @@ function ok(label: string, got: unknown, want: unknown) {
 
 const ids = Object.keys(IMPL_CLAIMS) as (keyof typeof IMPL_CLAIMS)[];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const DOMAIN_TAGS: readonly unknown[] = ["f64", "i64u64f64", "bignum"];
+const DOMAIN_TAGS: readonly unknown[] = ["f64", "i64u64", "bignum"];
 const POLICIES: readonly unknown[] = ["approximate", "quoted-lossless", "reject", null];
 
 console.log("Part 1: shape");
@@ -82,7 +82,21 @@ ok("rust notes carry the pending #71 bump", (IMPL_CLAIMS.rust.notes ?? "").inclu
 
 console.log("Part 4: numeric domains (three DISTINCT models, nested for integers)");
 ok("ts domain is f64", IMPL_CLAIMS.ts.numeric.domain, "f64");
-ok("rust domain is i64u64f64 (arbitrary_precision OFF — NOT i128)", IMPL_CLAIMS.rust.numeric.domain, "i64u64f64");
+// MEASURED 2026-08-30, not read off serde_json's model: the tag was "i64u64f64"
+// and the f64 half was fiction — 2^100 is an exact double and rust stringifies
+// it. The domain is the i64/u64 window alone. See domainEvidence for the ladder.
+ok("rust domain is i64u64 (the window ALONE — no f64 fallback, measured)", IMPL_CLAIMS.rust.numeric.domain, "i64u64");
+// The falsified claim must not creep back in a later edit.
+ok("rust domainEvidence records the measurement, not the serde_json reading",
+  IMPL_CLAIMS.rust.numeric.domainEvidence.includes("MEASURED 2026-08-30"), true);
+ok("rust domainEvidence states there is no f64 fallback",
+  IMPL_CLAIMS.rust.numeric.domainEvidence.includes("NO f64 FALLBACK"), true);
+// The lossless-string observation is what turns the filing from "loses data"
+// into "undocumented"; losing it would make the report unfair upstream.
+ok("rust notes record the caveat as discharged by measurement",
+  IMPL_CLAIMS.rust.numeric.notes!.includes("CAVEAT LARGELY DISCHARGED"), true);
+ok("rust decoderPolicy is STILL null — behaviour observed, documentation absent",
+  IMPL_CLAIMS.rust.numeric.decoderPolicy, null);
 ok("python domain is bignum", IMPL_CLAIMS.python.numeric.domain, "bignum");
 // The domains must be distinct, or the matrix has no numeric fault line to
 // find: 2^53+1 separates ts from the other two, and the u64 boundary
