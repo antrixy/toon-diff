@@ -1,0 +1,11 @@
+{
+  "origin": "hand-built from SPEC.md v4.1 §4 (unquoted numeric token grammar + out-of-range policy); never emitted by any encoder",
+  "invariant": "2^64+1 is a valid unquoted numeric token per §4's grammar, so a decoder MUST either represent it exactly or apply a DOCUMENTED out-of-range policy; the value sits above every implementation's f64/u64 ceiling except python's, making it the rust/python fault line the pairwise matrix cannot reach from an encoder",
+  "refs": [
+    "https://github.com/toon-format/spec/blob/main/SPEC.md",
+    "SPEC.md v4.1 §4 \"If a decoded numeric token is not representable within the implementation's documented numeric domain\"",
+    "SPEC.md v4.1 §2 JSON-model equality: numbers compare by mathematical value",
+    "adapters/RUST-NOTES.md — the u64 ceiling here is OUR bridge's arbitrary_precision-OFF choice, so a rust divergence is a harness-model fact until reproduced against the published crate directly"
+  ],
+  "specRules": ["integer-precision-lossless"]
+}

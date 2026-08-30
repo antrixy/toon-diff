@@ -1,0 +1,11 @@
+{
+  "origin": "hand-built from SPEC.md v4.1 §9.1 + §13.2; the legacy root form encoders are FORBIDDEN to emit, so no round-trip case can reach it",
+  "invariant": "§9.1 requires decoders to accept the legacy root form [0]: as an empty array while forbidding encoders from emitting it — a MUST-accept obligation that is structurally unreachable through any encoder, which is precisely what the spec bucket exists to test",
+  "refs": [
+    "https://github.com/toon-format/spec/blob/main/SPEC.md",
+    "SPEC.md v4.1 §9.1 Decoding: decoders MUST accept key: [], [], and the legacy forms key[0<delim?>]: and [0<delim?>]:",
+    "SPEC.md v4.1 §13.2 decoder checklist: accept empty arrays in both forms",
+    "https://github.com/toon-format/toon-python/issues/61"
+  ],
+  "specRules": ["empty-array-canonical-literal"]
+}
