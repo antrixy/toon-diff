@@ -40,6 +40,7 @@ import {
   type SpecVerdict,
 } from "./spec-rules.ts";
 import { SPEC_VERSION_CLAIMS } from "../adapters/contract.ts";
+import { SPEC_SIDE } from "./spec-run.ts";
 import {
   NUMERIC_FACTS,
   encoderVerdict,
@@ -121,6 +122,22 @@ function constrainedSides(
   from: string,
   to: string,
 ): { side: string; role: SideVerdict["role"] }[] {
+  // SPEC-DERIVED CASE. The wire came from SPEC.md, so the encoder position is
+  // held by the specification itself and carries no obligation — a spec cannot
+  // violate a spec. Only the decoder is judged, whatever the rule's appliesTo
+  // says about the round-trip. This is the one-sided path, and it is why the
+  // per-side verdict machinery had to ship first.
+  if (from === SPEC_SIDE) {
+    if (rule.appliesTo === "encoder") {
+      // An encoder-only rule against a spec case constrains nobody: the only
+      // side present is the decoder, which the rule does not bind. Silently
+      // rendering zero verdicts would report as coverage, so it is a bug.
+      throw new Error(
+        `explain: spec case linked to encoder-only rule "${rule.id}" — a spec wire has no encoder side to judge; link a decoder or round-trip rule — harness bug`,
+      );
+    }
+    return [{ side: to, role: "decoder" }];
+  }
   switch (rule.appliesTo) {
     case "encoder":
       return [{ side: from, role: "encoder" }];
@@ -136,6 +153,22 @@ function constrainedSides(
   }
 }
 
+/**
+ * Numeric facts for the SPECIFICATION as pseudo-encoder. §2 compares numbers
+ * by MATHEMATICAL VALUE, so the spec's "domain" is unbounded and it is never
+ * out-of-domain. That matters mechanically, not just cosmetically: it keeps
+ * decoderVerdict's faithful-relay branch (which excuses a decoder when the
+ * encoder already lost the value) unreachable on the spec lane, so a spec case
+ * always judges the decoder on its own domain and its own documented policy —
+ * which is the entire point of testing against the spec rather than a peer.
+ */
+const SPEC_ENCODER_FACTS = {
+  domain: "bignum",
+  encoderPolicy: null,
+  decoderPolicy: null,
+  claimsLossless: false,
+} as const;
+
 /** Explain a set of divergences against a loaded corpus. Throws on harness bugs
  *  (unknown case key, unknown adapter name) — those are OUR mistakes, not data. */
 export function explain(
@@ -150,7 +183,19 @@ export function explain(
   const explanations: Explanation[] = records.map((r) => {
     const c = byKey.get(r.file);
     if (!c) throw new Error(`explain: divergence names unknown case "${r.file}" — harness bug`);
-    for (const side of [r.from, r.to]) {
+    // "spec" is a synthetic side, not an adapter, so it is exempt from the
+    // adapter-name guard — and only in the encoder position, where the wire
+    // originates. A decoder named "spec" would be a routing bug.
+    const specSide = r.from === SPEC_SIDE;
+    // Checked BEFORE the adapter guard below: "spec" is not in `claims`, so the
+    // generic unknown-adapter message would fire first and misdiagnose a
+    // routing bug as a missing adapter registration.
+    if (r.to === SPEC_SIDE) {
+      throw new Error(
+        `explain: "${SPEC_SIDE}" cannot be a decoder — it names the specification as the origin of the wire — harness bug`,
+      );
+    }
+    for (const side of specSide ? [r.to] : [r.from, r.to]) {
       if (!(side in claims)) {
         throw new Error(`explain: divergence names unknown adapter "${side}" — harness bug`);
       }
@@ -166,14 +211,14 @@ export function explain(
       let probe: string | null = null;
 
       if (kind === "numeric-domain") {
-        for (const side of [r.from, r.to]) {
+        for (const side of specSide ? [r.to] : [r.from, r.to]) {
           if (!(side in facts)) {
             throw new Error(
               `explain: numeric-domain rule "${rid}" but no numeric facts for adapter "${side}" — harness bug`,
             );
           }
         }
-        const e = facts[r.from];
+        const e = specSide ? SPEC_ENCODER_FACTS : facts[r.from];
         const d = facts[r.to];
         probe = governingProbe(c.text, e, d);
         verdicts = sides.map(({ side, role }) => {

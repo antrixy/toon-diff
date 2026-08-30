@@ -30,14 +30,33 @@ function ok(label: string, got: unknown, want: unknown) {
 // ---------- Part 1: the real corpus ----------
 console.log("Part 1: real corpus");
 const corpus = loadCorpus();
-ok("14 cases load", corpus.cases.length, 14);
+ok("16 cases load", corpus.cases.length, 16);
 ok("13 are in seeds/", corpus.byBucket.seeds.length, 13);
 // generated/ opened 2026-08-09 with the toon-rust#78 witness. The bucket exists to
 // keep PROVENANCE legible: a hand-written seed and a fuzz-found case promoted into
 // the corpus are different kinds of evidence and must not be counted as one.
 ok("1 is in generated/", corpus.byBucket.generated.length, 1);
+// spec/ OPENED 2026-08-30 with the u64 boundary and the legacy empty-array root.
+// Different in KIND from every other bucket: the input is hand-built wire text,
+// so no encoder is in the loop and the spec itself is the oracle.
+ok("2 are in spec/", corpus.byBucket.spec.length, 2);
 ok("the remaining buckets are still empty",
-  BUCKETS.filter((b) => b !== "seeds" && b !== "generated").every((b) => corpus.byBucket[b].length === 0), true);
+  BUCKETS.filter((b) => b !== "seeds" && b !== "generated" && b !== "spec").every((b) => corpus.byBucket[b].length === 0), true);
+
+// The spec case SHAPE: wire present exactly in spec/, and nowhere else. This is
+// the loader guarantee probe/spec-run.ts relies on to refuse a wireless case.
+ok("every spec case carries wire text",
+  corpus.byBucket.spec.every((c) => typeof c.wire === "string" && c.wire.length > 0), true);
+ok("no non-spec case carries wire text",
+  corpus.cases.filter((c) => c.bucket !== "spec").every((c) => c.wire === undefined), true);
+const u64 = corpus.byBucket.spec.find((c) => c.id === "001")!;
+ok("the u64 wire is the hand-built text, not JSON", u64.wire, "n: 18446744073709551617");
+ok("the u64 body is the spec-mandated expected decode", u64.text, `{"n":18446744073709551617}`);
+ok("the u64 lexeme survives the loader (no 18446744073709551616 corruption)",
+  u64.text.includes("18446744073709551617"), true);
+const legacy = corpus.byBucket.spec.find((c) => c.id === "002")!;
+ok("the legacy-root wire is the form encoders may not emit", legacy.wire, "[0]:");
+ok("the legacy-root body is the empty array", legacy.text, "[]");
 // Ids are unique PER BUCKET (corpus.ts:124 scopes seenIds inside the bucket loop),
 // so generated/ numbers from 001 rather than continuing the seeds sequence.
 ok("ids are unique within each bucket",
@@ -54,7 +73,11 @@ ok("013 carries refs", Array.isArray(c013.meta.refs) && c013.meta.refs.length > 
 const c002 = corpus.cases.find((c) => c.id === "002")!;
 ok("002 references its spec rule", (c002.meta.specRules ?? []).includes("empty-array-canonical-literal"), true);
 ok("013 references its spec rule", (c013.meta.specRules ?? []).includes("integer-precision-lossless"), true);
-ok("only 002 and 013 carry specRules so far", corpus.cases.filter((c) => c.meta.specRules !== undefined).length, 2);
+// Was 2 (seeds 002 and 013); the two spec cases each link a rule by design —
+// a spec case with no rule would render as an unexplained divergence.
+ok("four cases carry specRules", corpus.cases.filter((c) => c.meta.specRules !== undefined).length, 4);
+ok("every spec case links a rule",
+  corpus.byBucket.spec.every((c) => (c.meta.specRules ?? []).length > 0), true);
 
 // Raw-text fidelity: loader output must be the on-disk bytes, trimmed only.
 const raw013 = readFileSync(join(defaultCorpusRoot(), "seeds/013-precision-loss-2pow53plus1.json"), "utf8").trim();
@@ -156,6 +179,50 @@ expectReject("stray file at corpus root (pre-v0.3 layout)", "unexpected entry at
   writeFileSync(join(root, "001-a.json"), `{}`);
 });
 
+// ---- the spec/ wire shape (v0.4) ----
+// A spec case that cannot run must refuse the corpus, not load as a body that
+// nothing ever decodes — the all-or-nothing rule applied to the new shape.
+expectReject("spec case with no wire", "missing wire 001-a.toon", (root) => {
+  const d = join(root, "spec");
+  mkdirSync(d);
+  goodCase(d, "001-a");
+});
+expectReject("orphan wire in spec/", "wire has no matching case file", (root) => {
+  const d = join(root, "spec");
+  mkdirSync(d);
+  goodCase(d, "001-a");
+  writeFileSync(join(d, "001-a.toon"), `a: 1`);
+  writeFileSync(join(d, "002-b.toon"), `b: 2`);
+});
+expectReject("empty wire text", "wire text is empty", (root) => {
+  const d = join(root, "spec");
+  mkdirSync(d);
+  goodCase(d, "001-a");
+  writeFileSync(join(d, "001-a.toon"), `   \n\n`);
+});
+expectReject("wire file outside spec/", "belong only in spec/", (root) => {
+  const d = join(root, "seeds");
+  mkdirSync(d);
+  goodCase(d, "001-a");
+  writeFileSync(join(d, "001-a.toon"), `a: 1`);
+});
+
+// Leading whitespace is STRUCTURE in TOON (§12 indentation), so the wire read
+// must not trim it the way case bodies are trimmed. A loader that called
+// .trim() here would silently reparent every nested line to depth 0.
+{
+  const root = mkdtempSync(join(tmpdir(), "corpus-"));
+  const d = join(root, "spec");
+  mkdirSync(d);
+  writeFileSync(join(d, "001-a.json"), `{"a":{"b":1}}`);
+  writeFileSync(join(d, "001-a.meta.json"), `{"origin":"t","invariant":"t"}`);
+  writeFileSync(join(d, "001-a.toon"), `  a:\n    b: 1\n\n`);
+  const c = loadCorpus(root).byBucket.spec[0];
+  ok("wire keeps leading indentation", c.wire, "  a:\n    b: 1");
+  ok("wire drops trailing whitespace", c.wire!.endsWith("1"), true);
+  rmSync(root, { recursive: true, force: true });
+}
+
 // All-or-nothing: one bad case in an otherwise good corpus loads nothing.
 {
   const root = mkdtempSync(join(tmpdir(), "corpus-"));
@@ -176,7 +243,7 @@ expectReject("stray file at corpus root (pre-v0.3 layout)", "unexpected entry at
 
 console.log();
 if (fail === 0) {
-  console.log(`CORPUS LOADER PROVEN: ${pass} checks pass. Buckets, sidecars, and raw-text fidelity are enforced; malformed corpora are refused whole.`);
+  console.log(`CORPUS LOADER PROVEN: ${pass} checks pass. Buckets, sidecars, wire text, and raw-text fidelity are enforced; a spec case that cannot run refuses the corpus, and malformed corpora are refused whole.`);
 } else {
   console.log(`CORPUS LOADER FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);

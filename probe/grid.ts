@@ -21,6 +21,7 @@
  */
 
 import type { DivergenceRecord } from "./explain.ts";
+import { SPEC_SIDE } from "./spec-run.ts";
 
 export type CellMark = "agree" | "value-mismatch" | "error";
 
@@ -117,6 +118,74 @@ export function buildGrid(
   };
 }
 
+// ---------------------------------------------------------------------------
+// The spec lane (v0.4)
+//
+// Spec results are ONE-SIDED: the wire came from SPEC.md, so there is no
+// encoder row to render and `spec` is deliberately kept out of the N×N grid's
+// adapter namespace — adding it there would put a synthetic name in a matrix
+// whose every other cell is a real ordered pair, and would make the N×N
+// arithmetic lie. This is the separate one-row view (option (i) in the closing
+// plan), which is also the 002 column pattern: rows are cases, columns are
+// decoders, and a mark means "this decoder disagrees WITH THE SPEC".
+// ---------------------------------------------------------------------------
+
+export interface SpecGridReport {
+  decoders: string[]; // cli order, columns
+  caseKeys: string[]; // corpus order, rows
+  specChecks: number; // caseKeys.length * decoders.length
+  totalDivergences: number;
+  /** marks[caseKey][decoder] — every cell present, "agree" by default. */
+  marks: Record<string, Record<string, CellMark>>;
+}
+
+/** Build the one-sided spec grid. Throws on harness bugs, like buildGrid. */
+export function buildSpecGrid(
+  records: DivergenceRecord[],
+  decoderNames: string[],
+  specCaseKeys: string[],
+): SpecGridReport {
+  const known = new Set(decoderNames);
+  const caseIdx = new Map(specCaseKeys.map((k, i) => [k, i]));
+
+  const marks: SpecGridReport["marks"] = {};
+  for (const k of specCaseKeys) {
+    marks[k] = {};
+    for (const d of decoderNames) marks[k][d] = "agree";
+  }
+
+  const seen = new Set<string>();
+  for (const r of records) {
+    // A record reaching this lane with a real adapter as `from` would mean a
+    // pairwise result was routed into the one-sided view, silently halving it.
+    if (r.from !== SPEC_SIDE) {
+      throw new Error(
+        `spec grid: divergence names encoder "${r.from}" but the spec lane admits only "${SPEC_SIDE}" — harness bug`,
+      );
+    }
+    if (!known.has(r.to)) {
+      throw new Error(`spec grid: divergence names unknown decoder "${r.to}" — harness bug`);
+    }
+    if (!caseIdx.has(r.file)) {
+      throw new Error(`spec grid: divergence names unknown case "${r.file}" — harness bug`);
+    }
+    const dupKey = `${r.file}\u0000${r.to}`;
+    if (seen.has(dupKey)) {
+      throw new Error(`spec grid: duplicate divergence for ${r.file} (${r.to}) — harness bug`);
+    }
+    seen.add(dupKey);
+    marks[r.file][r.to] = r.error !== undefined ? "error" : "value-mismatch";
+  }
+
+  return {
+    decoders: decoderNames,
+    caseKeys: specCaseKeys,
+    specChecks: specCaseKeys.length * decoderNames.length,
+    totalDivergences: records.length,
+    marks,
+  };
+}
+
 const MARK_CHAR: Record<CellMark, string> = {
   agree: "\u00b7",
   "value-mismatch": "\u2717",
@@ -176,5 +245,38 @@ export function renderGridReport(report: GridReport): string[] {
       lines.push(...renderOneGrid(report.adapters, (from, to) => MARK_CHAR[g.marks[from][to]], "    "));
     }
   }
+  return lines;
+}
+
+/** CLI rendering for the spec lane — rows are cases, cols are decoders. */
+export function renderSpecGridReport(report: SpecGridReport): string[] {
+  const lines: string[] = [];
+  lines.push(
+    `SPEC GRID (case row \u2192 decoder col): ${report.caseKeys.length} spec case(s), ` +
+      `${report.specChecks} check(s), wire from SPEC.md \u2014 no encoder in the loop`,
+  );
+  if (report.caseKeys.length === 0) {
+    lines.push("  (no spec cases)");
+    return lines;
+  }
+  const label = "case\\dec";
+  const labelW = Math.max(label.length, ...report.caseKeys.map((k) => k.length));
+  const colW = report.decoders.map((d) => d.length);
+  lines.push(
+    "  " + label.padEnd(labelW) + report.decoders.map((d, i) => "  " + d.padStart(colW[i])).join(""),
+  );
+  for (const k of report.caseKeys) {
+    lines.push(
+      "  " +
+        k.padEnd(labelW) +
+        report.decoders
+          .map((d, i) => "  " + MARK_CHAR[report.marks[k][d]].padStart(colW[i]))
+          .join(""),
+    );
+  }
+  lines.push(
+    `  ${MARK_CHAR.agree} = decodes as the spec says   ` +
+      `${MARK_CHAR["value-mismatch"]} = disagrees with the spec   ${MARK_CHAR.error} = error`,
+  );
   return lines;
 }

@@ -17,6 +17,18 @@
  * point. It is only checked for well-formedness via the oracle's lossless
  * ingest, which reads lexemes from source text.
  *
+ * spec/ cases are a TRIPLE:  NNN-name.json + NNN-name.toon + NNN-name.meta.json
+ * The .toon file is HAND-BUILT WIRE TEXT derived from SPEC.md — never emitted
+ * by any implementation's encoder; that independence is the bucket's whole
+ * point (see ROADMAP "v0.4"). For a spec case the .json body is the
+ * SPEC-MANDATED EXPECTED DECODE, so the oracle value inherits the same
+ * lossless-ingest strictness as every other case body. Conceptually the spec
+ * is a pseudo-encoder whose output IS the .toon text; the run path (see
+ * probe/spec-run.ts) checks decode_X(wire) against the body, one check per
+ * implementation — N, not N×N. Wire text keeps leading structure (TOON is
+ * line-oriented); only trailing whitespace is trimmed, and a blank wire
+ * refuses the corpus. A .toon file outside spec/ refuses the corpus.
+ *
  * The .meta.json sidecar answers two questions in one line each:
  *   origin    — where did this case come from?
  *   invariant — what property does it protect?
@@ -60,8 +72,12 @@ export interface CorpusCase {
   /** e.g. "seeds/011-safe-integer-boundary.json" (corpus-relative, stable key). */
   key: string;
   bucket: Bucket;
-  /** Raw source text of the case, trimmed, lexemes untouched. */
+  /** Raw source text of the case, trimmed, lexemes untouched.
+   *  For spec/ cases this is the SPEC-MANDATED EXPECTED DECODE. */
   text: string;
+  /** Hand-built TOON wire text — present exactly when bucket === "spec"
+   *  (loader-guaranteed, selftest-pinned). Trailing whitespace trimmed only. */
+  wire?: string;
   meta: CaseMeta;
 }
 
@@ -72,6 +88,7 @@ export interface Corpus {
 
 const CASE_RE = /^(\d{3})-([a-z0-9]+(?:-[a-z0-9]+)*)\.json$/;
 const META_SUFFIX = ".meta.json";
+const WIRE_SUFFIX = ".toon";
 
 export function defaultCorpusRoot(): string {
   return fileURLToPath(new URL("./cases/", import.meta.url));
@@ -121,11 +138,25 @@ export function loadCorpus(root: string = defaultCorpusRoot()): Corpus {
       (f) => f.endsWith(".json") && !f.endsWith(META_SUFFIX),
     );
     const metaFiles = new Set(files.filter((f) => f.endsWith(META_SUFFIX)));
+    // Only spec/ tracks wires for orphan-matching; elsewhere a .toon file is
+    // already reported as misfiled below and must not report twice.
+    const wireFiles = new Set(
+      bucket === "spec" ? files.filter((f) => f.endsWith(WIRE_SUFFIX)) : [],
+    );
     const seenIds = new Map<string, string>(); // id -> filename
 
     for (const f of files) {
-      if (!f.endsWith(".json")) {
-        problems.push(`${bucket}/${f}: not a .json or .meta.json file`);
+      if (f.endsWith(WIRE_SUFFIX)) {
+        // Wire text is the spec bucket's case shape and no one else's: in any
+        // other bucket the case body IS the input, so a stray .toon file there
+        // is a case filed in the wrong bucket, not a supported variant.
+        if (bucket !== "spec") {
+          problems.push(
+            `${bucket}/${f}: wire (.toon) files belong only in spec/ — the other buckets are JSON-in/round-trip`,
+          );
+        }
+      } else if (!f.endsWith(".json")) {
+        problems.push(`${bucket}/${f}: not a .json, .meta.json, or .toon file`);
       }
     }
 
@@ -180,12 +211,37 @@ export function loadCorpus(root: string = defaultCorpusRoot()): Corpus {
         }
       }
 
+      // Wire text: spec/ cases only, and MANDATORY there. A spec case without
+      // its wire is a case that cannot run at all, so it refuses the corpus
+      // rather than silently loading as an untested body.
+      let wire: string | undefined;
+      if (bucket === "spec") {
+        const wireName = file.slice(0, -".json".length) + WIRE_SUFFIX;
+        if (!wireFiles.has(wireName)) {
+          problems.push(
+            `${where}: missing wire ${wireName} — a spec case is judged on hand-built TOON wire text`,
+          );
+          continue;
+        }
+        wireFiles.delete(wireName);
+        // Trailing whitespace only: TOON is line-oriented and indentation is
+        // load-bearing (§12), so leading structure must survive the read.
+        wire = readFileSync(join(dir, wireName), "utf8").replace(/\s+$/, "");
+        if (wire === "") {
+          problems.push(
+            `${bucket}/${wireName}: wire text is empty — an empty document decodes to {} (§5), which is a case that must say so deliberately`,
+          );
+          continue;
+        }
+      }
+
       const c: CorpusCase = {
         id,
         name,
         key: `${bucket}/${file}`,
         bucket,
         text,
+        ...(wire !== undefined ? { wire } : {}),
         meta,
       };
       cases.push(c);
@@ -194,6 +250,9 @@ export function loadCorpus(root: string = defaultCorpusRoot()): Corpus {
 
     for (const orphan of metaFiles) {
       problems.push(`${bucket}/${orphan}: sidecar has no matching case file`);
+    }
+    for (const orphan of wireFiles) {
+      problems.push(`${bucket}/${orphan}: wire has no matching case file`);
     }
   }
 

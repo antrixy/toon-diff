@@ -8,6 +8,11 @@
  *   - error-vs-mismatch marks per case (002: python coerces ✗, rust errors E)
  *   - corpus ordering of case grids and in-cell case lists
  *   - pairChecks arithmetic matches cli-v2's counter (14 x 3 x 3 = 126)
+ *
+ * v0.4: the N×N grid is fed NON-SPEC cases only. Spec cases are one-sided
+ * (N checks, not N×N) and render in their own lane via buildSpecGrid, so
+ * folding them in here would inflate pairChecks by 2 x 3 x 3 instead of the
+ * 2 x 3 they actually cost. The arithmetic is a tripwire, so it must stay true.
  *   - harness-bug tripwires: unknown adapter, unknown case, duplicate record
  *   - rendering: alignment inputs, legend, all-agree grid has no BY CASE
  *
@@ -16,7 +21,7 @@
  */
 
 import { loadCorpus } from "./corpus.ts";
-import { buildGrid, renderGridReport } from "./grid.ts";
+import { buildGrid, renderGridReport, buildSpecGrid, renderSpecGridReport } from "./grid.ts";
 import type { DivergenceRecord } from "./explain.ts";
 
 let pass = 0;
@@ -49,7 +54,9 @@ const MATRIX_2026_07_12: DivergenceRecord[] = [
 
 const ADAPTERS = ["ts", "python", "rust"]; // cli order
 const corpus = loadCorpus();
-const caseKeys = corpus.cases.map((c) => c.key);
+// NON-SPEC only: the pairwise matrix never runs a spec case (see spec-run.ts).
+const caseKeys = corpus.cases.filter((c) => c.bucket !== "spec").map((c) => c.key);
+const specCaseKeys = corpus.byBucket.spec.map((c) => c.key);
 
 console.log("Part 1: aggregate grid on the real 7");
 const grid = buildGrid(MATRIX_2026_07_12, ADAPTERS, caseKeys);
@@ -126,9 +133,76 @@ ok("all-agree grid still renders", clean[0].startsWith("GRID"), true);
 ok("all-agree grid has no BY CASE section", clean.some((l) => l.startsWith("BY CASE")), false);
 ok("all-agree cells are all \u00b7", clean.slice(2, 5).every((l) => !/\d/.test(l.replace(/^\s*\w+/, ""))), true);
 
+console.log("Part 5: the spec lane (one-sided, v0.4)");
+// Rows are CASES and columns are DECODERS — there is no encoder axis, because
+// the wire came from SPEC.md. The synthetic "spec" name never enters the N\u00d7N
+// adapter namespace, and these checks pin that separation.
+const SPEC_K1 = "spec/001-u64-boundary.json";
+const SPEC_K2 = "spec/002-legacy-empty-array-root.json";
+const specRecords: DivergenceRecord[] = [
+  { file: SPEC_K1, from: "spec", to: "ts", expected: `{"n":18446744073709551617}`, actual: `{"n":18446744073709551616}` },
+  { file: SPEC_K1, from: "spec", to: "rust", expected: `{"n":18446744073709551617}`, actual: "", error: "number out of range" },
+];
+const sg = buildSpecGrid(specRecords, ADAPTERS, specCaseKeys);
+ok("2 spec cases", sg.caseKeys.length, 2);
+// 2 x 3 = 6, NOT 2 x 3 x 3. The whole reason spec cases are kept out of the
+// N\u00d7N counter: a one-sided case costs N checks, and the arithmetic is a tripwire.
+ok("6 spec checks (N, not N\u00d7N)", sg.specChecks, 6);
+ok("spec checks are not pair-checks", sg.specChecks === specCaseKeys.length * ADAPTERS.length, true);
+ok("2 divergences recorded", sg.totalDivergences, 2);
+ok("ts marked value-mismatch", sg.marks[SPEC_K1]["ts"], "value-mismatch");
+ok("rust marked error", sg.marks[SPEC_K1]["rust"], "error");
+ok("python agrees on the u64 case", sg.marks[SPEC_K1]["python"], "agree");
+ok("the clean case is clean across every decoder",
+  ADAPTERS.every((a) => sg.marks[SPEC_K2][a] === "agree"), true);
+
+// Harness-bug tripwires, same discipline as the N\u00d7N lane.
+{
+  let threw = "";
+  try {
+    buildSpecGrid([{ file: SPEC_K1, from: "ts", to: "rust", expected: "", actual: "" }], ADAPTERS, specCaseKeys);
+  } catch (e) { threw = (e as Error).message; }
+  // A pairwise record routed into the one-sided lane would silently drop its
+  // encoder side and report a pair result as a spec result.
+  ok("a real encoder in the spec lane throws", threw.includes("admits only"), true);
+}
+{
+  let threw = "";
+  try {
+    buildSpecGrid([{ file: SPEC_K1, from: "spec", to: "go", expected: "", actual: "" }], ADAPTERS, specCaseKeys);
+  } catch (e) { threw = (e as Error).message; }
+  ok("unknown decoder throws", threw.includes("unknown decoder"), true);
+}
+{
+  let threw = "";
+  try {
+    buildSpecGrid([{ file: "spec/999-nope.json", from: "spec", to: "ts", expected: "", actual: "" }], ADAPTERS, specCaseKeys);
+  } catch (e) { threw = (e as Error).message; }
+  ok("unknown spec case throws", threw.includes("unknown case"), true);
+}
+{
+  let threw = "";
+  try {
+    buildSpecGrid([specRecords[0], specRecords[0]], ADAPTERS, specCaseKeys);
+  } catch (e) { threw = (e as Error).message; }
+  ok("duplicate (case, decoder) record throws", threw.includes("duplicate"), true);
+}
+
+const specLines = renderSpecGridReport(sg);
+ok("spec header names the lane", specLines[0].startsWith("SPEC GRID"), true);
+ok("spec header says no encoder is in the loop", specLines[0].includes("no encoder in the loop"), true);
+ok("spec header carries the check count", specLines[0].includes("6 check(s)"), true);
+ok("spec grid names its decoders", specLines[1].includes("ts") && specLines[1].includes("rust"), true);
+ok("spec grid renders a row per case",
+  specLines.some((l) => l.includes(SPEC_K1)) && specLines.some((l) => l.includes(SPEC_K2)), true);
+ok("spec legend explains agreement WITH THE SPEC",
+  specLines.some((l) => l.includes("decodes as the spec says")), true);
+const emptySpec = renderSpecGridReport(buildSpecGrid([], ADAPTERS, []));
+ok("an empty spec bucket still renders", emptySpec.some((l) => l.includes("(no spec cases)")), true);
+
 console.log();
 if (fail === 0) {
-  console.log(`GRID REPORT PROVEN: ${pass} checks pass. The real 7 divergences render as the 013 TS-asymmetry plus the 002 decoder column, with error-vs-mismatch marks and harness-bug tripwires intact.`);
+  console.log(`GRID REPORT PROVEN: ${pass} checks pass. The real 7 divergences render as the 013 TS-asymmetry plus the 002 decoder column, with error-vs-mismatch marks and harness-bug tripwires intact; the spec lane renders one-sided at N checks and refuses a pairwise record.`);
 } else {
   console.log(`GRID REPORT FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);

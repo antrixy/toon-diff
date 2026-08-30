@@ -171,9 +171,80 @@ ok("decoder-side §4 clause renders for 013", lines.some((l) => l.includes("[\u0
 ok("a cite line renders for 002", lines.some((l) => l.startsWith("  cite: SPEC 4.1")), true);
 ok("no unexplained section for a fully-covered report", lines.some((l) => l.includes("UNEXPLAINED")), false);
 
+console.log("Part 6: the one-sided spec lane (v0.4)");
+// A spec-derived divergence has ONE implementation side. The spec sits in the
+// encoder position and carries no obligation — a spec cannot violate a spec —
+// so only the decoder is judged, and it is judged on its OWN domain and its
+// OWN documented policy rather than being excused as a faithful relay.
+const SPEC_U64 = "spec/001-u64-boundary.json";
+const SPEC_LEGACY = "spec/002-legacy-empty-array-root.json";
+const specReport = explain(
+  [
+    { file: SPEC_U64, from: "spec", to: "rust", expected: `{"n":18446744073709551617}`, actual: `{"n":1.8446744073709552e19}` },
+    { file: SPEC_U64, from: "spec", to: "ts", expected: `{"n":18446744073709551617}`, actual: `{"n":18446744073709551616}` },
+    { file: SPEC_LEGACY, from: "spec", to: "python", expected: "[]", actual: "", error: "unexpected token" },
+  ],
+  corpus,
+);
+ok("all three spec divergences explained", specReport.explained, 3);
+
+const specRust = specReport.explanations[0].rules[0];
+ok("exactly ONE side is judged", specRust.verdicts.length, 1);
+ok("and it is the decoder", specRust.verdicts[0].role, "decoder");
+ok("the decoder is the implementation, not the spec", specRust.verdicts[0].side, "rust");
+ok("no verdict is issued against the spec", specRust.verdicts.some((v) => v.side === "spec"), false);
+// 2^64+1 governs: out of rust's i64/u64 window and not f64-exact.
+ok("the governing probe is 2^64+1", specRust.governingProbe, "18446744073709551617");
+// THE LOAD-BEARING CHECK. In the pairwise lane, an out-of-domain ENCODER
+// excuses the decoder as a faithful relay. The spec is never out-of-domain, so
+// that excuse is structurally unavailable here and rust is judged on its own
+// undocumented out-of-range policy — which is the independence gain, stated as
+// a verdict.
+ok("rust VIOLATES §4 (no faithful-relay excuse against the spec)", specRust.verdicts[0].verdict, "violates");
+ok("judged under §4", specRust.verdicts[0].clause, "\u00a74");
+
+const specTs = specReport.explanations[1].rules[0];
+// ts documents its decoder policy (post-#331), so the same wire yields a
+// DIFFERENT verdict on the same clause — attribution, not a blanket red row.
+ok("ts is documented-policy, not violates", specTs.verdicts[0].verdict, "documented-policy");
+ok("ts is judged under §4 too", specTs.verdicts[0].clause, "\u00a74");
+
+const specPy = specReport.explanations[2].rules[0];
+ok("the legacy-root case judges only python", specPy.verdicts.length, 1);
+ok("under a decoder rule it is still the decoder", specPy.verdicts[0].role, "decoder");
+ok("python claims no version, so it is measured against current spec",
+  specPy.verdicts[0].verdict, "violates-current");
+
+// An encoder-only rule against a spec case constrains NOBODY. Rendering zero
+// verdicts would report as coverage, so it must throw.
+{
+  const bad = {
+    cases: [{ ...corpus.byBucket.spec[0], meta: { origin: "t", invariant: "t", specRules: ["non-ascii-key-quoting"] } }],
+    byBucket: corpus.byBucket,
+  } as typeof corpus;
+  let threw = "";
+  try {
+    explain([{ file: SPEC_U64, from: "spec", to: "ts", expected: "", actual: "" }], bad);
+  } catch (e) { threw = (e as Error).message; }
+  ok("encoder-only rule on a spec case throws", threw.includes("no encoder side to judge"), true);
+}
+{
+  let threw = "";
+  try {
+    explain([{ file: SPEC_U64, from: "ts", to: "spec", expected: "", actual: "" }], corpus);
+  } catch (e) { threw = (e as Error).message; }
+  ok("\"spec\" as a DECODER throws", threw.includes("cannot be a decoder"), true);
+}
+
+const specLines = renderExplainReport(specReport);
+ok("spec divergences render with the spec as encoder",
+  specLines.some((l) => l.startsWith("spec \u2192 rust")), true);
+ok("the unattributed-fault note does not render on the spec lane",
+  specLines.some((l) => l.includes("fault not attributed")), false);
+
 console.log();
 if (fail === 0) {
-  console.log(`EXPLAIN ENGINE PROVEN: ${pass} checks pass. Today's 7 divergences are explained with citations, fenced stubs, side-scoped verdicts, a parameterized post-#71 future, and a parameterized pre-#331 past.`);
+  console.log(`EXPLAIN ENGINE PROVEN: ${pass} checks pass. Today's 7 divergences are explained with citations, fenced stubs, side-scoped verdicts, a parameterized post-#71 future, a parameterized pre-#331 past, and a one-sided spec lane where the decoder gets no faithful-relay excuse.`);
 } else {
   console.log(`EXPLAIN ENGINE FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);
