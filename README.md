@@ -111,7 +111,11 @@ per-side verdict (behind / violates-claimed / violates-current, computed from
 each implementation's own claimed spec version) — and summarized in an N×N
 grid (v0.3).
 
-Current baseline: 14 cases, 126 pair-checks, 10 divergences, 7 explained.
+Current baseline: 16 cases — 14 pairwise (126 pair-checks, 10 divergences,
+7 explained) and 2 spec (6 spec-checks). The spec cases are v0.4's independence
+piece: hand-built TOON wire text derived from SPEC.md, checked decoder-side, so
+no encoder is anywhere in the loop and the specification itself is the oracle.
+They are counted separately because a one-sided case costs N checks, not N×N.
 The three unexplained are one case — a quoted object key containing `.` that
 toon-rust returns with a `U+0000` prefix ([toon-rust#78](https://github.com/toon-format/toon-rust/issues/78)),
 found by the property layer and promoted into the corpus. They stay unexplained

@@ -68,14 +68,20 @@ implementation-free — no encoder anywhere in the loop.
   every pair carries no inherited assumption. Cheapest of the two: it emits
   JSON values, which the existing corpus, matrix, and oracle already consume —
   the same shape `gen/` produces today. *(Trust.)*
-- **Fill the `spec/` bucket.** Hand-built wire text derived directly from
-  SPEC.md and checked decoder-side, so the input never passed through any
-  encoder at all. Stronger evidence, and more work than "the bucket is wired
-  and empty" suggests: today's case format is JSON-in/round-trip-out, so a
-  wire-text case needs a second case shape, a per-implementation run path
-  (N checks, not N×N), and a way to render a one-sided result. Modelling the
-  spec itself as a pseudo-encoder makes that last part nearly free — the
-  existing per-side verdict logic then applies unchanged. *(Trust.)*
+- **Fill the `spec/` bucket.** SHIPPED 2026-08-30. Hand-built wire text derived
+  directly from SPEC.md and checked decoder-side, so the input never passed
+  through any encoder at all. The case shape is a triple (`.json` expected
+  decode + `.toon` wire + `.meta.json`); the run path is `probe/spec-run.ts`
+  at N checks per case; the result renders in its own one-sided lane
+  (`buildSpecGrid`). The pseudo-encoder is CONCEPTUAL rather than an `Adapter`:
+  records carry `from: "spec"`, but no spec adapter is registered, because
+  `encode()` takes jsonText and many wire forms legitimately decode to one
+  value — a real shim would need a value→wire lookup that collides on exactly
+  the cases the bucket exists to hold. The per-side verdict logic did apply
+  unchanged, as predicted. Opening cases: the u64 boundary and the legacy
+  empty-array root form (`[0]:`), the latter being a decoder MUST-accept that
+  encoders are FORBIDDEN to emit — structurally unreachable from any
+  round-trip, which is the independence argument in one case. *(Trust.)*
 
 **Shipped in v0.4 so far.** Per-side numeric-domain verdicts
 (`probe/numeric-domain.ts`): §2's round-trip MUST is scoped to *in-domain*
@@ -87,9 +93,13 @@ obligations are judged independently — which is what lets the report say
 *(Understanding — and a prerequisite for the `spec/` bucket, since a
 spec-derived case has only one implementation side to judge.)*
 
-**Known fault line, not yet a case.** The u64 boundary separates rust
-(`i64/u64` + f64 fallback) from python (arbitrary precision) — a real
-divergence above 013's, and a natural first `spec/` resident.
+**The u64 boundary is now a case.** `spec/001-u64-boundary` — it separates rust
+(`i64/u64` + f64 fallback) from python (arbitrary precision), a real divergence
+above 013's. Observed against the real ts decoder on 2026-08-30: it returns
+`18446744073709552000` and is judged `documented-policy` under §4 (post-#331),
+while the spec side carries no obligation, so the faithful-relay excuse that
+applies in the pairwise lane is structurally unavailable. python and rust
+remain PREDICTED, not observed — the frozen environment was not available.
 
 ## Later — conditional on actual use, not built on spec
 

@@ -23,7 +23,8 @@ import { tsAdapter } from "./adapters/ts.ts";
 import { pythonAdapter } from "./adapters/python.ts";
 import { rustAdapter } from "./adapters/rust.ts";
 import { explain, renderExplainReport } from "./probe/explain.ts";
-import { buildGrid, renderGridReport } from "./probe/grid.ts";
+import { buildGrid, renderGridReport, buildSpecGrid, renderSpecGridReport } from "./probe/grid.ts";
+import { runSpecCases } from "./probe/spec-run.ts";
 
 const adapters: Adapter[] = [tsAdapter, pythonAdapter, rustAdapter];
 
@@ -37,8 +38,15 @@ interface Mismatch {
 }
 
 const main = async () => {
-  const corpus = loadCorpus(); // validated: buckets, sidecars, raw-text fidelity
-  const cases = corpus.cases;
+  const corpus = loadCorpus(); // validated: buckets, sidecars, wire text, raw-text fidelity
+  // TWO LANES, DELIBERATELY SEPARATE. The pairwise matrix runs JSON-in cases
+  // through every ordered adapter pair. Spec cases are wire-in and one-sided —
+  // the spec is the oracle and there is no encoder — so they run N checks each
+  // in their own lane. Folding them together would make pairChecks read
+  // specCount * N * N for cases that cost specCount * N, turning the arithmetic
+  // tripwire into a fudge.
+  const cases = corpus.cases.filter((c) => c.bucket !== "spec");
+  const specCases = corpus.byBucket.spec;
   const mismatches: Mismatch[] = [];
   const wouldHaveQuarantined: string[] = []; // v1 would have benched these
   let pairChecks = 0;
@@ -73,8 +81,14 @@ const main = async () => {
     }
   }
 
+  // ---- the spec lane: wire from SPEC.md, no encoder in the loop ------------
+  const spec = await runSpecCases(specCases, adapters);
+
   // ---- report -------------------------------------------------------------
-  console.log(`corpus: ${cases.length} cases | tested: ${cases.length} (lossless) | pair-checks: ${pairChecks}\n`);
+  console.log(
+    `corpus: ${corpus.cases.length} cases (${cases.length} pairwise, ${specCases.length} spec) | ` +
+      `pair-checks: ${pairChecks} | spec-checks: ${spec.specChecks}\n`,
+  );
 
   if (wouldHaveQuarantined.length) {
     console.log(`now-testable (v1 would have quarantined ${wouldHaveQuarantined.length}): ${wouldHaveQuarantined.join(", ")}\n`);
@@ -86,11 +100,22 @@ const main = async () => {
   for (const line of renderGridReport(grid)) console.log(line);
   console.log();
 
-  if (mismatches.length === 0) {
-    console.log("ALL PAIRS AGREE on every case.");
+  // The spec lane renders separately: rows are cases, columns are decoders, and
+  // a mark means "disagrees with the SPECIFICATION" rather than "disagrees with
+  // a peer". This is the evidence the pairwise design structurally cannot
+  // produce, so it is not folded into the grid above.
+  if (specCases.length) {
+    const specGrid = buildSpecGrid(spec.records, adapters.map((a) => a.name), specCases.map((c) => c.key));
+    for (const line of renderSpecGridReport(specGrid)) console.log(line);
+    console.log();
+  }
+
+  const all = [...mismatches, ...spec.records];
+  if (all.length === 0) {
+    console.log("ALL PAIRS AGREE on every case, and every decoder matches the spec.");
   } else {
-    console.log(`DIVERGENCES (${mismatches.length}):\n`);
-    for (const m of mismatches) {
+    console.log(`DIVERGENCES (${mismatches.length} pairwise, ${spec.records.length} vs spec):\n`);
+    for (const m of all) {
       console.log(`${m.from} \u2192 ${m.to}   \u2717   ${m.file}`);
       if (m.error) { console.log(`  error:    ${m.error.trimEnd()}\n`); continue; }
       console.log(`  expected: ${m.expected}`);
@@ -98,11 +123,11 @@ const main = async () => {
     }
     // Interpretation layer: rules, clause citations, spec-version verdicts.
     // Raw divergences above are the evidence; this is what they MEAN.
-    for (const line of renderExplainReport(explain(mismatches, corpus))) {
+    for (const line of renderExplainReport(explain(all, corpus))) {
       console.log(line);
     }
   }
-  process.exit(mismatches.length === 0 ? 0 : 1);
+  process.exit(all.length === 0 ? 0 : 1);
 };
 
 main();

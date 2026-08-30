@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Fifteen files, 681 checks. Run all of them; the counts are promotion
+   Sixteen files, 794 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -21,9 +21,10 @@ From the project root (the folder this file is in):
      node --experimental-strip-types gen/selftest-cli-write.ts         #  20
      node --experimental-strip-types gen/selftest-run-manifest.ts      #  90
      node --experimental-strip-types gen/selftest-finding-log.ts       #  50
-     node --experimental-strip-types probe/selftest-corpus.ts          #  39
-     node --experimental-strip-types probe/selftest-grid.ts            #  40
+     node --experimental-strip-types probe/selftest-corpus.ts          #  58
+     node --experimental-strip-types probe/selftest-grid.ts            #  59
      node --experimental-strip-types probe/selftest-explain.ts         #  48
+     node --experimental-strip-types probe/selftest-spec-run.ts        #  25
      node --experimental-strip-types probe/selftest-numeric-domain.ts  #  53
      node --experimental-strip-types probe/selftest-spec-rules.ts      #  83
      node --experimental-strip-types adapters/selftest-claims.ts       #  62
@@ -51,8 +52,8 @@ From the project root (the folder this file is in):
    pair-check arithmetic, AND the rendered header string). Add the case first and
    read what goes red; do not go looking for the counts by hand.
 
-3c) MUTATION PASSES. Six modules carry one, and each must be re-run when its
-   module changes. All six work on scratch copies and never touch the tree:
+3c) MUTATION PASSES. Seven modules carry one, and each must be re-run when its
+   module changes. All seven work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 23 mutations killed
      python3 gen/mutate-finding-log.py    # all 18 mutations killed
@@ -60,6 +61,7 @@ From the project root (the folder this file is in):
      python3 oracle/mutate-oracle.py      # all 23 mutations killed
      python3 gen/mutate-emit.py           # all 12 mutations killed
      python3 gen/mutate-shrink.py         # all 21 mutations killed
+     python3 probe/mutate-spec-run.py     # all 19 mutations killed
 
    A NOTE ON JUDGES, from gen/mutate-emit.py. gen/selftest-emit.ts is judged by
    the ORACLE, whose equality ignores object key order and JSON whitespace -- so
@@ -83,10 +85,50 @@ From the project root (the folder this file is in):
 4) Run the differential matrix:
      node --experimental-strip-types cli-v2.ts
 
-What to expect: 14 cases tested, 0 quarantined. Case 013 (9007199254740993)
-should DIVERGE on every TS-involving pair (ts->ts, ts->python, python->ts)
-because JS rounds it at JSON.parse before TOON is involved; python->python
-should pass. That asymmetry is the real finding, not a harness bug.
+What to expect: 16 cases loaded — 14 PAIRWISE (126 pair-checks) plus 2 SPEC
+(6 spec-checks). Case 013 (9007199254740993) should DIVERGE on every
+TS-involving pair (ts->ts, ts->python, python->ts) because JS rounds it at
+JSON.parse before TOON is involved; python->python should pass. That asymmetry
+is the real finding, not a harness bug.
+
+THE TWO COUNTERS ARE SEPARATE AND MUST STAY SEPARATE. A pairwise case costs
+N x N checks; a spec case costs N. Folding spec cases into pair-checks would
+report 2 x 3 x 3 = 18 for work that is 2 x 3 = 6, which turns the arithmetic
+from a tripwire into a fudge. probe/selftest-grid.ts pins both.
+
+### THE spec/ BUCKET (v0.4) — wire-in, one-sided
+
+probe/cases/spec/ cases are a TRIPLE, not a pair:
+
+     NNN-name.json    the SPEC-MANDATED EXPECTED DECODE (the oracle value)
+     NNN-name.toon    HAND-BUILT TOON WIRE TEXT, derived from SPEC.md
+     NNN-name.meta.json
+
+The wire never passed through any implementation's encoder, which is the whole
+point: every wire in the pairwise matrix came from someone's encoder, so if all
+implementations share one wrong assumption the matrix sees nothing. The run
+path (probe/spec-run.ts) checks decode_X(wire) against the body once per
+implementation and records `from: "spec"` — a synthetic name that is
+deliberately NOT an adapter and never enters the N x N grid.
+
+Loading is all-or-nothing here too: a spec case without its .toon, an orphan
+.toon, an empty wire, or a .toon in any other bucket all refuse the WHOLE
+corpus. Wire text keeps leading indentation (it is structure, per SPEC §12) and
+drops only trailing whitespace.
+
+What to expect on the two opening cases: on 001-u64-boundary, python should
+AGREE (arbitrary precision) while ts and rust both diverge; ts renders
+18446744073709552000 (its documented §4 approximation, JSON.stringify's
+shortest round-trip form of the nearest double) and is judged
+"documented-policy", while rust has no documented out-of-range policy and is
+judged "violates" — but see the caveat below. On 002-legacy-empty-array-root,
+ts ACCEPTS `[0]:` and agrees; python is the suspect (toon-python#61).
+
+RUST CAVEAT, PRE-DECLARED: rust's u64 ceiling is OUR bridge's
+arbitrary_precision-OFF choice (adapters/RUST-NOTES.md), not an upstream
+policy. A red rust cell on 001 is a HARNESS-MODEL FACT and must not be filed
+upstream until reproduced against the published crate directly, the way #78
+was. The sidecar carries this.
 
 ## v0.2 — the mutation generator (gen/)
 
