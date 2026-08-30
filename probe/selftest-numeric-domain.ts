@@ -25,6 +25,8 @@ import {
   isExactF64Integer,
   inDomain,
   domainsNest,
+  f64Approximation,
+  relayLandsInDomain,
   encoderVerdict,
   decoderVerdict,
   bothVerdict,
@@ -72,21 +74,97 @@ ok("2^54 IS exact despite exceeding the safe range", isExactF64Integer(2n ** 54n
 ok("2^54+1 is not exact", isExactF64Integer(2n ** 54n + 1n), false);
 ok("beyond the double's exponent range nothing is exact", isExactF64Integer(2n ** 1024n), false);
 
-console.log("Part 3: domain membership and nesting");
+console.log("Part 3: domain membership — MEASURED, not modelled");
+// EVERY ROW BELOW WAS OBSERVED through the built bridge on 2026-08-30 (14-value
+// ladder, crate 0.5.0 / rustc 1.96.1), then written here. The previous version
+// of this block asserted a union with the exactly-representable doubles that
+// was read off serde_json's model and never checked against the binary.
+const TWO_100 = (2n ** 100n).toString();
+const U64_MAX = (2n ** 64n - 1n).toString();
+const I64_MIN = (-(2n ** 63n)).toString();
+
 ok("2^53+1 is out-of-domain for f64", inDomain("f64", V), false);
-ok("2^53+1 is in-domain for i64u64f64", inDomain("i64u64f64", V), true);
+ok("2^53+1 is in-domain for i64u64", inDomain("i64u64", V), true);
 ok("2^53+1 is in-domain for bignum", inDomain("bignum", V), true);
-ok("the safe boundary is in-domain everywhere", inDomain("f64", SAFE) && inDomain("i64u64f64", SAFE), true);
+ok("the safe boundary is in-domain everywhere", inDomain("f64", SAFE) && inDomain("i64u64", SAFE), true);
+// The window's own edges, both observed as exact numbers.
+ok("u64 max is in-domain for i64u64", inDomain("i64u64", U64_MAX), true);
+ok("i64 min is in-domain for i64u64", inDomain("i64u64", I64_MIN), true);
+ok("i64 min - 1 is OUT (observed: stringifies)", inDomain("i64u64", (-(2n ** 63n) - 1n).toString()), false);
 // The rust/python fault line: real, but ABOVE 013.
-ok("2^64 is out-of-domain for i64u64f64", inDomain("i64u64f64", (2n ** 64n + 1n).toString()), false);
+ok("2^64 is out-of-domain for i64u64", inDomain("i64u64", (2n ** 64n + 1n).toString()), false);
 ok("2^64+1 is still in-domain for bignum", inDomain("bignum", (2n ** 64n + 1n).toString()), true);
-// serde_json falls back to f64 past the integer window, so a huge power of
-// two is still exact — the union, not just the i64/u64 range.
-ok("2^100 is in-domain for i64u64f64 via the f64 fallback", inDomain("i64u64f64", (2n ** 100n).toString()), true);
-// Soundness of the decoder "faithful relay" rule.
-for (const v of ["0", "-1", SAFE, V, (2n ** 63n).toString(), (2n ** 64n + 1n).toString(), (2n ** 100n).toString()]) {
-  ok(`domains nest at ${v}`, domainsNest(v), true);
-}
+// M5: the edge ITSELF, not just past it. Checking only 2^64+1 left "v <= TWO_64"
+// alive, because that mutant is wrong at exactly one value.
+ok("2^64 EXACTLY is out-of-domain for i64u64 (the edge is exclusive)",
+  inDomain("i64u64", (2n ** 64n).toString()), false);
+// THE ROW THAT SETTLED IT. 2^100 IS an exact double, so the old model called it
+// in-domain "via the f64 fallback". The bridge returns it as a lossless STRING,
+// so there is no fallback and the domain is the window alone.
+ok("2^100 is OUT for i64u64 — there is no f64 fallback (measured)", inDomain("i64u64", TWO_100), false);
+ok("2^100 IS an exact double, which is why the old model got this wrong", isExactF64Integer(2n ** 100n), true);
+
+console.log("Part 3b: the domains do NOT nest, and both directions are pinned");
+// Nesting was the stated basis for the decoder's faithful-relay credit. It is
+// gone, so it is asserted FALSE here rather than quietly dropped — a removed
+// check leaves no trace, an inverted one does.
+ok("nesting HOLDS at 2^53+1 (f64 out, window in)", domainsNest(V), true);
+ok("nesting FAILS at 2^100 (exact double, outside the window)", domainsNest(TWO_100), false);
+ok("f64 is not a subset of i64u64 (2^100 is in f64, not the window)",
+  inDomain("f64", TWO_100) && !inDomain("i64u64", TWO_100), true);
+ok("i64u64 is not a subset of f64 (u64 max is in the window, not an exact double)",
+  inDomain("i64u64", U64_MAX) && !inDomain("f64", U64_MAX), true);
+ok("bignum still contains both", inDomain("bignum", TWO_100) && inDomain("bignum", U64_MAX), true);
+
+console.log("Part 3c: the relay credit is now COMPUTED, not assumed");
+// f64 encoder out-of-domain at 2^53+1 emits 2^53, which the window holds — so
+// the 013 verdicts are unchanged by any of the above. That is the check that
+// proves this correction did not silently move an existing finding.
+ok("f64's approximation of 2^53+1 is 2^53", String(f64Approximation(V)), (2n ** 53n).toString());
+ok("relay is sound ts->rust at 2^53+1", relayLandsInDomain(V, "f64", "i64u64"), true);
+ok("relay is sound ts->python at 2^53+1", relayLandsInDomain(V, "f64", "bignum"), true);
+// But NOT at 2^100+1, where ts's approximation is 2^100 — outside the window.
+const TWO_100_P1 = (2n ** 100n + 1n).toString();
+ok("f64's approximation of 2^100+1 is 2^100", String(f64Approximation(TWO_100_P1)), TWO_100);
+ok("relay is NOT sound ts->rust at 2^100+1", relayLandsInDomain(TWO_100_P1, "f64", "i64u64"), false);
+ok("relay is still sound ts->bignum at 2^100+1", relayLandsInDomain(TWO_100_P1, "f64", "bignum"), true);
+// An i64u64 encoder out-of-domain emits a lossless string, so nothing numeric
+// is lost for the decoder to be blamed for.
+ok("relay is sound rust->ts at 2^64+1 (lossless string on the wire)",
+  relayLandsInDomain((2n ** 64n + 1n).toString(), "i64u64", "f64"), true);
+
+// M15: the credit must test what the encoder EMITS, not the input value.
+// u64 max is INSIDE rust's window, but ts's nearest double for it is 2^64,
+// which is not — so a check written against the original value would wrongly
+// call this relay sound. This is the one value in the ladder that separates
+// the two formulations.
+ok("u64 max is in rust's window", inDomain("i64u64", U64_MAX), true);
+ok("but ts's approximation of it is 2^64", String(f64Approximation(U64_MAX)), (2n ** 64n).toString());
+ok("so relay ts->rust at u64 max is NOT sound", relayLandsInDomain(U64_MAX, "f64", "i64u64"), false);
+
+console.log("Part 3d: decoderVerdict actually CONSULTS the relay check");
+// M12: testing relayLandsInDomain() in isolation left "if (true)" alive in
+// decoderVerdict — the guard existed and nothing proved it was wired in.
+const tsF = NUMERIC_FACTS.ts, rustF = NUMERIC_FACTS.rust, pyF = NUMERIC_FACTS.python;
+ok("ts->rust at 2^53+1 is still a faithful relay (013 verdict unmoved)",
+  decoderVerdict(V, tsF, rustF).verdict, "conformant");
+ok("ts->rust at 2^100+1 is UNATTRIBUTED, not credited",
+  decoderVerdict(TWO_100_P1, tsF, rustF).verdict, "unattributed");
+ok("the unattributed text says the model cannot say whose loss it is",
+  decoderVerdict(TWO_100_P1, tsF, rustF).text.includes("cannot say whose loss"), true);
+ok("ts->python at 2^100+1 is still a faithful relay (bignum holds anything)",
+  decoderVerdict(TWO_100_P1, tsF, pyF).verdict, "conformant");
+
+// M20: the wording that keeps the report from reading as an accusation of data
+// loss. rust returns the exact digits as a lossless string and STILL lands on
+// "violates" for want of documentation; dropping this sentence would make the
+// filing unfair, and prose that carries meaning has to be pinned like anything else.
+const rustOOR = decoderVerdict((2n ** 64n + 1n).toString(), pyF, rustF);
+ok("an undocumented decoder is judged violates", rustOOR.verdict, "violates");
+ok("and the text names it a DOCUMENTATION fault, not data loss",
+  rustOOR.text.includes("DOCUMENTATION fault"), true);
+ok("and states §4 permits several behaviours",
+  rustOOR.text.includes("RECOMMENDED lossless-first"), true);
 
 console.log("Part 4: per-side verdicts — only the f64 side owes anything");
 const { ts, rust, python } = NUMERIC_FACTS;
@@ -135,7 +213,7 @@ ok("2^64+1 governs the rust/python pair", governingProbe(`{"n":${2n ** 64n + 1n}
 
 console.log();
 if (fail === 0) {
-  console.log(`NUMERIC DOMAIN PROVEN: ${pass} checks pass. Probes come from case text; f64 exactness is the odd-part test; domains nest; fault is attributed per side, and the §3 encoder gap survives a §4 decoder fix.`);
+  console.log(`NUMERIC DOMAIN PROVEN: ${pass} checks pass. Probes come from case text; f64 exactness is the odd-part test; the domains do NOT nest and both directions are pinned; fault is attributed per side, the §3 encoder gap survives a §4 decoder fix, and the relay credit is COMPUTED from measured domains rather than assumed from nesting that no longer holds.`);
 } else {
   console.log(`NUMERIC DOMAIN FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);

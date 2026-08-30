@@ -126,26 +126,92 @@ export function inDomain(tag: NumericDomainTag, value: string): boolean {
       return true;
     case "f64":
       return isExactF64Integer(v);
-    case "i64u64f64":
-      // serde_json with arbitrary_precision OFF stores an integer as i64 or
-      // u64 when it fits, and otherwise falls back to f64 — so the domain is
-      // the union, not just the integer window.
-      return (v >= -TWO_63 && v < TWO_64) || isExactF64Integer(v);
+    case "i64u64":
+      // MEASURED 2026-08-30 (see IMPL_CLAIMS.rust.numeric.domainEvidence), not
+      // read off serde_json's model. This used to union the window with the
+      // exactly-representable doubles, on the reasoning that serde_json falls
+      // back to f64 past the integer range. IT DOES NOT: toon-format detects
+      // the out-of-range token and returns the exact digits as a QUOTED STRING
+      // before serde's number model applies. 2^100 is an exact double and
+      // still stringifies, which is the row that settles it.
+      return v >= -TWO_63 && v < TWO_64;
   }
 }
 
 /**
- * The domains must NEST (f64 ⊆ i64u64f64 ⊆ bignum) for the decoder rule below
- * to be sound: when an encoder is out-of-domain it emits its own approximation,
- * and we credit the decoder as a faithful relay only because that
- * approximation is guaranteed to land inside the decoder's domain too. A
- * selftest pins this over the boundary values.
+ * THE DOMAINS NO LONGER NEST, AND THAT IS A MEASURED FACT, NOT A MODEL CHOICE.
+ *
+ * This function used to assert f64 ⊆ i64u64f64 ⊆ bignum, and the decoder's
+ * faithful-relay credit (below) rested on it: when an encoder is out-of-domain
+ * it emits its own approximation, and we credited the decoder as a faithful
+ * relay only because that approximation was GUARANTEED to land inside the
+ * decoder's domain too.
+ *
+ * The 2026-08-30 boundary measurement removed the guarantee. With rust's f64
+ * fallback gone, f64 and i64u64 are INCOMPARABLE, in both directions:
+ *   - 2^100 is an exact double and is NOT in [-2^63, 2^64), so f64 ⊄ i64u64;
+ *   - 2^63-1 is in the window and is NOT an exact double, so i64u64 ⊄ f64.
+ * Only bignum still contains both.
+ *
+ * So this predicate now reports the truth rather than pinning an invariant,
+ * and the relay credit is decided per value by relayLandsInDomain() instead of
+ * by an assumption that no longer holds. Keeping the old assertion would have
+ * been the worst option: a check that passes because nothing tests it.
  */
 export function domainsNest(value: string): boolean {
   const f = inDomain("f64", value);
-  const i = inDomain("i64u64f64", value);
+  const i = inDomain("i64u64", value);
   const b = inDomain("bignum", value);
   return (!f || i) && (!i || b);
+}
+
+/**
+ * The exact integer value of the nearest IEEE-754 double, or null when the
+ * value has no finite double. BigInt(Number(x)) is exact for integer-valued
+ * doubles, so this is the encoder's emitted approximation, not an estimate.
+ */
+export function f64Approximation(value: string): bigint | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return BigInt(n);
+}
+
+/**
+ * Is the decoder's faithful-relay credit SOUND at this value?
+ *
+ * The credit says: the encoder was already out-of-domain, so the wire carries
+ * ITS lossy output and this side merely decoded what it received. That is only
+ * fair if what the encoder emitted is something the decoder can hold. What
+ * gets emitted depends on the encoder's domain, and both branches below are
+ * measured behaviour rather than inference:
+ *
+ *   f64 encoder    — emits the nearest double. Whether that lands in the
+ *                    decoder's domain is now a real question (2^100 is an
+ *                    exact double that rust cannot hold), so it is CHECKED.
+ *   i64u64 encoder — emits the exact digits as a lossless quoted string
+ *                    (measured 2026-08-30). The decoder then relays a string
+ *                    faithfully; the type change is upstream, so the credit
+ *                    stands.
+ *   bignum encoder — never out-of-domain, so this is unreachable.
+ */
+export function relayLandsInDomain(
+  value: string,
+  encoderDomain: NumericDomainTag,
+  decoderDomain: NumericDomainTag,
+): boolean {
+  switch (encoderDomain) {
+    case "bignum":
+      return true; // never out-of-domain; caller only reaches here if it were
+    case "i64u64": {
+      // Lossless string on the wire — nothing numeric was lost to relay.
+      return true;
+    }
+    case "f64": {
+      const approx = f64Approximation(value);
+      if (approx === null) return false; // no finite double to relay at all
+      return inDomain(decoderDomain, approx.toString());
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +255,7 @@ export type NumericVerdict =
   | "documented-lossless" // out-of-domain, documented quoted-lossless path (§2)
   | "documented-lossy" // out-of-domain, documented approximation (§3+§2)
   | "documented-policy" // out-of-range, documented decoder policy (§4)
+  | "unattributed" // the model cannot fairly judge this side — see below
   | "violates"; // an obligation is unmet
 
 export interface NumericSideResult {
@@ -255,10 +322,23 @@ export function decoderVerdict(
   d: NumericImplFacts,
 ): NumericSideResult {
   if (!inDomain(e.domain, value)) {
+    // The encoder was already out-of-domain, so the wire carries ITS output
+    // and the loss is upstream — BUT only if what it emitted is something this
+    // side can hold. That used to be guaranteed by domain nesting; since the
+    // 2026-08-30 measurement removed the nesting, it is checked per value.
+    if (relayLandsInDomain(value, e.domain, d.domain)) {
+      return {
+        verdict: "conformant",
+        clause: "§4",
+        text: `faithful relay — the encoder was out-of-domain, so the loss is upstream and this side decoded what it received`,
+      };
+    }
     return {
-      verdict: "conformant",
+      verdict: "unattributed",
       clause: "§4",
-      text: `faithful relay — the encoder was out-of-domain, so the loss is upstream and this side decoded what it received`,
+      text:
+        `the encoder is out-of-domain here, but what it emits for ${value} does not land inside this side's ${d.domain} domain either — ` +
+        `so the relay credit is not sound and the model cannot say whose loss this is without seeing the wire`,
     };
   }
   if (inDomain(d.domain, value)) {
@@ -276,7 +356,13 @@ export function decoderVerdict(
         `${value} is outside its ${d.domain} domain and no out-of-range policy is documented, which §4 makes a MUST` +
         (d.claimsLossless
           ? " — while the docs affirmatively claim lossless round-trips"
-          : ""),
+          : "") +
+        // WITHOUT THIS THE REPORT READS AS AN ACCUSATION OF DATA LOSS, and on
+        // 2026-08-30 that would have been wrong: rust returns the exact digits
+        // as a lossless quoted string, which is §4's RECOMMENDED behaviour,
+        // and still lands here because it documents nothing. The unmet
+        // obligation is the statement, not the handling.
+        ` — note this is a DOCUMENTATION fault: §4 permits a higher-precision type, a string, an approximation, or rejection, so even an implementation already doing the RECOMMENDED lossless-first thing owes the written policy`,
     };
   }
   return {
