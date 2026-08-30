@@ -1,0 +1,18 @@
+{
+  "origin": "hand-built from SPEC.md v4.1 §4 (unquoted numeric token grammar + out-of-range policy); never emitted by any encoder; clauses browser-verified 2026-08-30",
+  "invariant": "2^64+1 matches §4's normative number grammar, so it is a NUMBER token and not a string — the precondition this case rests on. A decoder MUST therefore either represent it exactly or apply a DOCUMENTED out-of-range policy (§4, restated in the §13.2 checklist). The value sits above every implementation's ceiling except python's, making it the rust/python fault line the pairwise matrix cannot reach from an encoder",
+  "refs": [
+    "https://github.com/toon-format/spec/blob/main/SPEC.md",
+    "SPEC.md v4.1 §4 number grammar (normative): an unquoted token decodes as a number iff it matches /^-?[0-9]+(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?$/i — so this token is a number, not a string",
+    "SPEC.md v4.1 §4: implementations MAY return a higher-precision type, a string, an approximate value, or reject the token IF that is the documented policy; implementations MUST document their out-of-range policy, lossless-first RECOMMENDED",
+    "SPEC.md v4.1 §13.2 decoder checklist: document the numeric out-of-range policy (§4)",
+    "SPEC.md v4.1 §2 JSON-model equality: numbers compare by mathematical value — which is why the SPEC side is never out-of-domain, so the decoder gets no faithful-relay excuse here",
+    "CHANGELOG [1.3] 2025-10-31: all implementations MUST preserve round-trip fidelity (§2); [1.4] added decoder out-of-range handling; [4.0] added rejection to the permitted documented policies",
+    "adapters/RUST-NOTES.md — the u64 ceiling here is OUR bridge's arbitrary_precision-OFF choice, so a rust divergence is a harness-model fact and must not be filed upstream until reproduced against the published crate directly, the way toon-rust#78 was",
+    "OBSERVED 2026-08-30 (frozen env, crate 0.5.0): rust returns {\"n\":\"18446744073709551617\"} — the EXACT digits as a lossless quoted string, not an approximation. That is §4's \"return a string\" option and the lossless-first behaviour §4 RECOMMENDS; the violates verdict is for documenting no policy, NOT for losing data. python returns the exact number and agrees; ts returns 18446744073709552000 and is documented-policy",
+    "This case's result FALSIFIED our own numeric model: rust's domain was recorded as the i64/u64 window UNION the exactly-representable doubles, which a 14-value boundary ladder disproved (2^100 is an exact double and still stringifies). Corrected the same day — see probe/numeric-domain.ts and IMPL_CLAIMS.rust.numeric.domainEvidence"
+  ],
+  "specRules": [
+    "integer-precision-lossless"
+  ]
+}
