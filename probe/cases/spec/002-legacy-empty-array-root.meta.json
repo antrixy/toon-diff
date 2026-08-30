@@ -1,10 +1,14 @@
 {
-  "origin": "hand-built from SPEC.md v4.1 §9.1 + §13.2; the legacy root form encoders are FORBIDDEN to emit, so no round-trip case can reach it",
-  "invariant": "§9.1 requires decoders to accept the legacy root form [0]: as an empty array while forbidding encoders from emitting it — a MUST-accept obligation that is structurally unreachable through any encoder, which is precisely what the spec bucket exists to test",
+  "origin": "hand-built from SPEC.md v4.1 §9.1 + §13.2; clauses and CHANGELOG entries browser-verified 2026-08-30",
+  "invariant": "§9.1 requires decoders to accept the legacy root form [0]: as an empty array — a decoder MUST since CHANGELOG [3.1], tested here directly rather than through any encoder. The encoder prohibition that makes it unreachable from a round-trip is NEWER than the decoder obligation: [3.1] made emitting the canonical form a SHOULD, and only [4.1] made the legacy form MUST NOT be emitted. So the case is unreachable through a 4.1-conforming encoder specifically; a conforming 3.x encoder could legitimately have produced this wire",
   "refs": [
     "https://github.com/toon-format/spec/blob/main/SPEC.md",
     "SPEC.md v4.1 §9.1 Decoding: decoders MUST accept key: [], [], and the legacy forms key[0<delim?>]: and [0<delim?>]:",
     "SPEC.md v4.1 §13.2 decoder checklist: accept empty arrays in both forms",
+    "SPEC.md v4.1 §9.1 Encoding (root position): encoders MUST emit [] on its own line; the legacy [0<delim?>]: form MUST NOT be emitted — this half dates from [4.1], not [3.1]",
+    "CHANGELOG [3.1] 2026-05-18: decoders MUST accept both canonical and legacy forms, encoders SHOULD emit the canonical form — the two halves differ in normative strength",
+    "CHANGELOG [4.1] 2026-07-26: encoders lost their remaining latitude over form; empty arrays emit key: [] and [], never the legacy key[0]:",
+    "MECHANISM: [0]: is a valid root array header (§6 length production admits the single digit 0), so §5 root-form discovery takes its FIRST branch (valid root array header -> decode a root array) rather than the []-literal branch, and length 0 with no inline content yields the empty array. A decoder that fails this case will therefore most likely raise a header-parse or count error, not an empty-array error",
     "https://github.com/toon-format/toon-python/issues/61"
   ],
   "specRules": ["empty-array-canonical-literal"]
