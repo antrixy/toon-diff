@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Sixteen files, 794 checks. Run all of them; the counts are promotion
+   Sixteen files, 818 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -25,9 +25,9 @@ From the project root (the folder this file is in):
      node --experimental-strip-types probe/selftest-grid.ts            #  59
      node --experimental-strip-types probe/selftest-explain.ts         #  48
      node --experimental-strip-types probe/selftest-spec-run.ts        #  25
-     node --experimental-strip-types probe/selftest-numeric-domain.ts  #  53
+     node --experimental-strip-types probe/selftest-numeric-domain.ts  #  73
      node --experimental-strip-types probe/selftest-spec-rules.ts      #  83
-     node --experimental-strip-types adapters/selftest-claims.ts       #  62
+     node --experimental-strip-types adapters/selftest-claims.ts       #  66
 
    Each ends "... PROVEN ...". Any adapters/ commit runs the FULL suite, not
    just the touched directory's selftest — probe/ imports IMPL_CLAIMS, so an
@@ -52,8 +52,8 @@ From the project root (the folder this file is in):
    pair-check arithmetic, AND the rendered header string). Add the case first and
    read what goes red; do not go looking for the counts by hand.
 
-3c) MUTATION PASSES. Seven modules carry one, and each must be re-run when its
-   module changes. All seven work on scratch copies and never touch the tree:
+3c) MUTATION PASSES. Eight modules carry one, and each must be re-run when its
+   module changes. All eight work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 23 mutations killed
      python3 gen/mutate-finding-log.py    # all 18 mutations killed
@@ -62,6 +62,7 @@ From the project root (the folder this file is in):
      python3 gen/mutate-emit.py           # all 12 mutations killed
      python3 gen/mutate-shrink.py         # all 21 mutations killed
      python3 probe/mutate-spec-run.py     # all 19 mutations killed
+     python3 probe/mutate-numeric-domain.py # all 21 killed, 1 equivalent (M9)
 
    A NOTE ON JUDGES, from gen/mutate-emit.py. gen/selftest-emit.ts is judged by
    the ORACLE, whose equality ignores object key order and JSON whitespace -- so
@@ -116,19 +117,50 @@ Loading is all-or-nothing here too: a spec case without its .toon, an orphan
 corpus. Wire text keeps leading indentation (it is structure, per SPEC §12) and
 drops only trailing whitespace.
 
-What to expect on the two opening cases: on 001-u64-boundary, python should
-AGREE (arbitrary precision) while ts and rust both diverge; ts renders
-18446744073709552000 (its documented §4 approximation, JSON.stringify's
-shortest round-trip form of the nearest double) and is judged
-"documented-policy", while rust has no documented out-of-range policy and is
-judged "violates" — but see the caveat below. On 002-legacy-empty-array-root,
-ts ACCEPTS `[0]:` and agrees; python is the suspect (toon-python#61).
+OBSERVED 2026-08-30 in the frozen environment (Node 24.4.1, toon 2.3.0,
+toon_format 0.9.0-beta.1, crate 0.5.0, rustc 1.96.1). These are results, not
+predictions; the predictions they replaced are in the session handoff.
 
-RUST CAVEAT, PRE-DECLARED: rust's u64 ceiling is OUR bridge's
-arbitrary_precision-OFF choice (adapters/RUST-NOTES.md), not an upstream
-policy. A red rust cell on 001 is a HARNESS-MODEL FACT and must not be filed
-upstream until reproduced against the published crate directly, the way #78
-was. The sidecar carries this.
+  spec/001-u64-boundary                 ts  python  rust
+                                         X     .      X
+  spec/002-legacy-empty-array-root       .     .      .
+
+001: python decodes 18446744073709551617 EXACTLY (bignum) and agrees. ts returns
+18446744073709552000 -- JSON.stringify's shortest round-tripping form of the
+nearest double -- and is judged "documented-policy" under its post-#331 §4 docs.
+RUST RETURNS THE EXACT DIGITS AS A LOSSLESS QUOTED STRING, {"n":"1844...617"},
+which is §4's "return a string" option and the LOSSLESS-FIRST behaviour §4
+RECOMMENDS. It is still judged "violates" -- but purely for documenting no
+out-of-range policy, which §4 makes a MUST. A filing here reads "your decoder
+already does the recommended thing, please say so", NOT "your decoder loses
+data". This DISCHARGED the old rust caveat: nothing is lost, so the divergence
+is not an artifact of our arbitrary_precision-OFF bridge choice.
+
+002: ALL THREE AGREE -- and the interesting part is next to it in the same run.
+On seeds/002 (the CANONICAL []) python decodes the string "[]" and rust ERRORS,
+while both accept the LEGACY [0]: here. So the legacy form is the better
+supported one, the opposite of what the case was authored expecting. That turns
+seeds/002's "rust is behind the rule, not violating it" from version arithmetic
+into an evidenced statement: rust genuinely implements the pre-3.1 world, where
+the legacy form was the only form. A spec case that produces no divergence still
+earned its place. It also bounds toon-python#61 to the canonical form alone.
+
+THE MEASURED DOMAINS (probe-numeric-boundary, 14-value ladder, same session):
+rust decodes every plain integer token in [-2^63, 2^64) as an exact number and
+EVERYTHING outside it as a lossless string -- 2^100 included, though it is an
+exact double. THERE IS NO f64 FALLBACK. numeric-domain.ts previously modelled
+rust's domain as the window UNION the exactly-representable doubles, read off
+serde_json's model and never checked against the binary; selftest-numeric-domain
+asserted "2^100 is in-domain via the f64 fallback", a check that could not fail.
+Corrected 2026-08-30: the tag is now i64u64, the domains NO LONGER NEST (f64 and
+i64u64 are incomparable in both directions), and the decoder's faithful-relay
+credit is COMPUTED per value by relayLandsInDomain() instead of resting on the
+nesting that is gone. The 013 verdicts are unchanged, which is pinned.
+
+UNPROBED LIMIT: the ladder used plain decimal integer tokens only. Whether an
+EXPONENT-form token (1e30, which §2 permits an encoder to emit for |n| >= 1e21)
+takes the same path is NOT KNOWN. Settle it before relying on the domain for a
+wire that could carry one.
 
 ## v0.2 — the mutation generator (gen/)
 
