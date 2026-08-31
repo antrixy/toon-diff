@@ -108,6 +108,34 @@ MUTATIONS = [
      '    case "i64u64": {\n      // Lossless string on the wire — nothing numeric was lost to relay.\n      return true;\n    }',
      '    case "i64u64": {\n      return false;\n    }'),
 
+    # ---- THE TOKEN-FORM BRANCH: added after the guard was wrong TWICE -----
+    # The first guard ignored the wire form entirely and called ts->rust
+    # unsound at 2^100+1; ts emits exponent there and rust returns a number.
+    # A constant nobody mutates is a constant that drifts back.
+    ("M23 the exponent branch is removed (the first wrong guard, restored)",
+     "      if (mag >= EXPONENT_FORM_THRESHOLD) return true;",
+     "      if (false) return true;"),
+
+    ("M24 every f64 relay is credited (the exponent branch swallows the plain band)",
+     "      if (mag >= EXPONENT_FORM_THRESHOLD) return true;",
+     "      if (true) return true;"),
+
+    ("M25 the §2 form threshold retuned to 1e18",
+     "const EXPONENT_FORM_THRESHOLD = 10n ** 21n;",
+     "const EXPONENT_FORM_THRESHOLD = 10n ** 18n;"),
+
+    ("M26 the §2 form threshold off by one order",
+     "const EXPONENT_FORM_THRESHOLD = 10n ** 21n;",
+     "const EXPONENT_FORM_THRESHOLD = 10n ** 22n;"),
+
+    ("M27 the threshold comparison is exclusive at 1e21",
+     "      if (mag >= EXPONENT_FORM_THRESHOLD) return true;",
+     "      if (mag > EXPONENT_FORM_THRESHOLD) return true;"),
+
+    ("M28 magnitude ignored, so negatives never reach the exponent branch",
+     "      const mag = approx < 0n ? -approx : approx;",
+     "      const mag = approx;"),
+
     # ---- per-side attribution (the 013 lesson) ----------------------------
     ("M18 encoder credited as conformant while out-of-domain",
      "  if (inDomain(e.domain, value)) {",

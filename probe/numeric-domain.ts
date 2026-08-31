@@ -177,21 +177,44 @@ export function f64Approximation(value: string): bigint | null {
 }
 
 /**
+ * SPEC §2 lets an encoder emit exponent notation for |n| >= 1e21 (canonical
+ * decimal is REQUIRED only for n = 0 and 1e-6 <= |n| < 1e21), and the TS
+ * encoder measurably takes that option at exactly this threshold:
+ *
+ *   2^65    -> n: 36893488147419103000        (plain decimal)
+ *   2^100   -> n: 1.2676506002282294e+30      (exponent)
+ *
+ * This constant is therefore the TOKEN FORM boundary on the wire, and it
+ * matters because the form — not the value — decides which path a decoder
+ * takes. Measured 2026-08-30; see the form ladder in
+ * IMPL_CLAIMS.rust.numeric.domainEvidence.
+ */
+const EXPONENT_FORM_THRESHOLD = 10n ** 21n;
+
+/**
  * Is the decoder's faithful-relay credit SOUND at this value?
  *
  * The credit says: the encoder was already out-of-domain, so the wire carries
  * ITS lossy output and this side merely decoded what it received. That is only
- * fair if what the encoder emitted is something the decoder can hold. What
- * gets emitted depends on the encoder's domain, and both branches below are
- * measured behaviour rather than inference:
+ * fair if what the encoder emitted is something the decoder can hold.
  *
- *   f64 encoder    — emits the nearest double. Whether that lands in the
- *                    decoder's domain is now a real question (2^100 is an
- *                    exact double that rust cannot hold), so it is CHECKED.
+ * THE DOMAIN ALONE DOES NOT ANSWER THIS, and getting that wrong is the defect
+ * this function was rewritten twice for. A decoder's numeric behaviour is a
+ * property of (implementation, TOKEN FORM), not of the implementation alone:
+ * rust returns a plain integer outside its window as a lossless STRING, but
+ * parses the same magnitude in exponent form as an f64 NUMBER. The split is
+ * lexical, with no magnitude threshold of its own — `123456789012345678901e5`
+ * is integer-valued and still takes the numeric path. So this function asks
+ * what the encoder actually PUTS ON THE WIRE, then what that form does.
+ *
+ *   f64 encoder    — emits the nearest double, in exponent form at or above
+ *                    1e21 and plain decimal below it (both measured). Every
+ *                    decoder measured parses an exponent token numerically, so
+ *                    the relay holds there; below the threshold the plain
+ *                    token has to land in the decoder's window.
  *   i64u64 encoder — emits the exact digits as a lossless quoted string
- *                    (measured 2026-08-30). The decoder then relays a string
- *                    faithfully; the type change is upstream, so the credit
- *                    stands.
+ *                    (measured). The decoder then relays a string faithfully;
+ *                    the type change is upstream, so the credit stands.
  *   bignum encoder — never out-of-domain, so this is unreachable.
  */
 export function relayLandsInDomain(
@@ -209,6 +232,12 @@ export function relayLandsInDomain(
     case "f64": {
       const approx = f64Approximation(value);
       if (approx === null) return false; // no finite double to relay at all
+      const mag = approx < 0n ? -approx : approx;
+      // Exponent form on the wire: measured to take the numeric path in every
+      // decoder in the matrix, so the decoder receives the encoder's double
+      // and returns it. The loss is upstream and the relay credit holds.
+      if (mag >= EXPONENT_FORM_THRESHOLD) return true;
+      // Plain decimal on the wire: it has to be something the decoder holds.
       return inDomain(decoderDomain, approx.toString());
     }
   }

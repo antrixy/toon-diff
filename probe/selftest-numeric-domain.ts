@@ -123,11 +123,49 @@ console.log("Part 3c: the relay credit is now COMPUTED, not assumed");
 ok("f64's approximation of 2^53+1 is 2^53", String(f64Approximation(V)), (2n ** 53n).toString());
 ok("relay is sound ts->rust at 2^53+1", relayLandsInDomain(V, "f64", "i64u64"), true);
 ok("relay is sound ts->python at 2^53+1", relayLandsInDomain(V, "f64", "bignum"), true);
-// But NOT at 2^100+1, where ts's approximation is 2^100 — outside the window.
 const TWO_100_P1 = (2n ** 100n + 1n).toString();
 ok("f64's approximation of 2^100+1 is 2^100", String(f64Approximation(TWO_100_P1)), TWO_100);
-ok("relay is NOT sound ts->rust at 2^100+1", relayLandsInDomain(TWO_100_P1, "f64", "i64u64"), false);
+
+// THE TOKEN FORM DECIDES, NOT THE VALUE. This block replaces an assertion that
+// was WRONG and had to be measured out: it claimed the relay was unsound at
+// 2^100+1 because 2^100 is outside rust's window. But ts emits 2^100 in
+// EXPONENT form (|n| >= 1e21), and rust parses exponent tokens numerically —
+// measured, along with the plain rows above, on 2026-08-30. So there are two
+// bands, and only the lower one breaks the relay.
+//
+// BAND 1 — [2^64, 1e21): ts emits PLAIN decimal, rust stringifies it.
+// 2^65 is the real case: ts's wire is literally "n: 36893488147419103000".
+// 2^65+1, not 2^65: the relay branch is only REACHED when the encoder is
+// out-of-domain, and 2^65 is an exact double that ts holds fine. The +1 makes
+// it inexact while leaving the approximation (2^65 ~ 3.7e19) in the band.
+const TWO_65_P1 = (2n ** 65n + 1n).toString();
+ok("2^65+1 is out-of-domain for f64 (so the relay branch is reached)",
+  inDomain("f64", TWO_65_P1), false);
+ok("its approximation is 2^65, which is plain-decimal territory (below 1e21)",
+  BigInt(String(f64Approximation(TWO_65_P1))) < 10n ** 21n, true);
+ok("relay is NOT sound ts->rust at 2^65+1 (plain token, rust stringifies)",
+  relayLandsInDomain(TWO_65_P1, "f64", "i64u64"), false);
+// BAND 2 — >= 1e21: ts emits EXPONENT form, every measured decoder parses it
+// numerically, so the relay holds after all.
+ok("2^100+1's approximation is exponent territory (>= 1e21)",
+  BigInt(TWO_100) >= 10n ** 21n, true);
+ok("relay IS sound ts->rust at 2^100+1 (exponent token takes the numeric path)",
+  relayLandsInDomain(TWO_100_P1, "f64", "i64u64"), true);
 ok("relay is still sound ts->bignum at 2^100+1", relayLandsInDomain(TWO_100_P1, "f64", "bignum"), true);
+// The threshold itself, from both sides — a constant nothing tests is a
+// constant that can drift.
+ok("just below 1e21 the plain path applies", relayLandsInDomain("999999999999999900000", "f64", "i64u64"), false);
+ok("at 1e21 the exponent path applies", relayLandsInDomain("1000000000000000000000", "f64", "i64u64"), true);
+// NEGATIVES TAKE THE SAME BRANCH. Found by mutation M28: dropping the absolute
+// value left every check green, because the whole threshold block was positive.
+// A sign error here would silently move every large negative into the plain
+// band and re-open the band-1 misattribution on the other side of zero.
+ok("-2^100+1 is out-of-domain for f64 (relay branch reached)",
+  inDomain("f64", (-(2n ** 100n) - 1n).toString()), false);
+ok("relay IS sound ts->rust at -(2^100+1) (magnitude, not sign, picks the branch)",
+  relayLandsInDomain((-(2n ** 100n) - 1n).toString(), "f64", "i64u64"), true);
+ok("and just below -1e21 the plain path still applies",
+  relayLandsInDomain("-999999999999999900000", "f64", "i64u64"), false);
 // An i64u64 encoder out-of-domain emits a lossless string, so nothing numeric
 // is lost for the decoder to be blamed for.
 ok("relay is sound rust->ts at 2^64+1 (lossless string on the wire)",
@@ -148,10 +186,12 @@ console.log("Part 3d: decoderVerdict actually CONSULTS the relay check");
 const tsF = NUMERIC_FACTS.ts, rustF = NUMERIC_FACTS.rust, pyF = NUMERIC_FACTS.python;
 ok("ts->rust at 2^53+1 is still a faithful relay (013 verdict unmoved)",
   decoderVerdict(V, tsF, rustF).verdict, "conformant");
-ok("ts->rust at 2^100+1 is UNATTRIBUTED, not credited",
-  decoderVerdict(TWO_100_P1, tsF, rustF).verdict, "unattributed");
+ok("ts->rust at 2^65+1 is UNATTRIBUTED, not credited (the plain-token band)",
+  decoderVerdict(TWO_65_P1, tsF, rustF).verdict, "unattributed");
 ok("the unattributed text says the model cannot say whose loss it is",
-  decoderVerdict(TWO_100_P1, tsF, rustF).text.includes("cannot say whose loss"), true);
+  decoderVerdict(TWO_65_P1, tsF, rustF).text.includes("cannot say whose loss"), true);
+ok("ts->rust at 2^100+1 IS credited (the exponent band)",
+  decoderVerdict(TWO_100_P1, tsF, rustF).verdict, "conformant");
 ok("ts->python at 2^100+1 is still a faithful relay (bignum holds anything)",
   decoderVerdict(TWO_100_P1, tsF, pyF).verdict, "conformant");
 
@@ -213,7 +253,7 @@ ok("2^64+1 governs the rust/python pair", governingProbe(`{"n":${2n ** 64n + 1n}
 
 console.log();
 if (fail === 0) {
-  console.log(`NUMERIC DOMAIN PROVEN: ${pass} checks pass. Probes come from case text; f64 exactness is the odd-part test; the domains do NOT nest and both directions are pinned; fault is attributed per side, the §3 encoder gap survives a §4 decoder fix, and the relay credit is COMPUTED from measured domains rather than assumed from nesting that no longer holds.`);
+  console.log(`NUMERIC DOMAIN PROVEN: ${pass} checks pass. Probes come from case text; f64 exactness is the odd-part test; the domains do NOT nest and both directions are pinned; fault is attributed per side, the §3 encoder gap survives a §4 decoder fix, and the relay credit is COMPUTED from the measured TOKEN FORM the encoder emits, not from domain nesting that no longer holds.`);
 } else {
   console.log(`NUMERIC DOMAIN FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);
