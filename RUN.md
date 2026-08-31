@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Sixteen files, 818 checks. Run all of them; the counts are promotion
+   Sixteen files, 828 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -25,7 +25,7 @@ From the project root (the folder this file is in):
      node --experimental-strip-types probe/selftest-grid.ts            #  59
      node --experimental-strip-types probe/selftest-explain.ts         #  48
      node --experimental-strip-types probe/selftest-spec-run.ts        #  25
-     node --experimental-strip-types probe/selftest-numeric-domain.ts  #  73
+     node --experimental-strip-types probe/selftest-numeric-domain.ts  #  83
      node --experimental-strip-types probe/selftest-spec-rules.ts      #  83
      node --experimental-strip-types adapters/selftest-claims.ts       #  66
 
@@ -62,7 +62,7 @@ From the project root (the folder this file is in):
      python3 gen/mutate-emit.py           # all 12 mutations killed
      python3 gen/mutate-shrink.py         # all 21 mutations killed
      python3 probe/mutate-spec-run.py     # all 19 mutations killed
-     python3 probe/mutate-numeric-domain.py # all 21 killed, 1 equivalent (M9)
+     python3 probe/mutate-numeric-domain.py # all 27 killed, 1 equivalent (M9)
 
    A NOTE ON JUDGES, from gen/mutate-emit.py. gen/selftest-emit.ts is judged by
    the ORACLE, whose equality ignores object key order and JSON whitespace -- so
@@ -157,10 +157,30 @@ i64u64 are incomparable in both directions), and the decoder's faithful-relay
 credit is COMPUTED per value by relayLandsInDomain() instead of resting on the
 nesting that is gone. The 013 verdicts are unchanged, which is pinned.
 
-UNPROBED LIMIT: the ladder used plain decimal integer tokens only. Whether an
-EXPONENT-form token (1e30, which §2 permits an encoder to emit for |n| >= 1e21)
-takes the same path is NOT KNOWN. Settle it before relying on the domain for a
-wire that could carry one.
+THE PATH IS CHOSEN BY TOKEN FORM, NOT VALUE (token-form ladder, same session).
+A PLAIN integer token outside rust's window returns a lossless string, but an
+EXPONENT token takes the f64 numeric path at EVERY magnitude tested, and the
+split is purely lexical -- 123456789012345678901e5 is integer-valued and still
+parsed as a float. The TS encoder emits plain decimal below 1e21 and exponent
+form at or above it (SPEC §2 permits the switch), so a ts->rust round trip has
+TWO BANDS:
+
+  [2^64, 1e21)  ts emits plain decimal, rust stringifies  -> relay UNSOUND
+  >= 1e21       ts emits exponent, rust returns a number  -> relay sound
+
+relayLandsInDomain() models exactly that, and the first version of it was WRONG:
+it ignored the wire form and called ts->rust unsound at 2^100+1, where ts in fact
+emits exponent notation. That error was made INSIDE the commit correcting the
+previous unmeasured assumption, which is the lesson worth keeping -- a model
+corrected from one measurement can still hold a second unmeasured assumption,
+and the correction is when you are least likely to look for it. Both bands are
+now pinned from measured ts wire values, negatives included.
+
+NEW DIVERGENCE, RECORDED BUT NOT YET A CASE: on `1e400` -- a token §4's number
+grammar accepts, with no finite double -- rust ERRORS while python returns the
+STRING "1e400". §4 permits rejection and returning a string, IF documented;
+neither documents anything. A real rust/python fault line ABOVE the u64 one, and
+a natural spec/003. Books to v0.5 under the scope rule.
 
 ## v0.2 — the mutation generator (gen/)
 
