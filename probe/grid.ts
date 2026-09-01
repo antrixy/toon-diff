@@ -25,6 +25,61 @@ import { SPEC_SIDE } from "./spec-run.ts";
 
 export type CellMark = "agree" | "value-mismatch" | "error";
 
+// ---------------------------------------------------------------------------
+// VOCABULARY (v0.4). These are LOCAL PARAMETERIZATION, NOT THE 4.5b EXTRACTION
+// CONTRACT. decisions.md 2026-08-30 ruled that 4.5b is generalized IN PLACE for
+// v0.4 and that no published interface is designed yet, because an interface
+// with exactly one consumer is a guess nothing can falsify. The shapes below
+// exist so the renderers stop hardwiring TOON's words; when a second harness
+// actually exists, THAT is when the contract gets designed, against two real
+// consumers instead of one real and one imagined.
+//
+// The bindings these remove: the pairwise grid said "encoder"/"decoder" and
+// "cases"; the one-sided grid said "SPEC GRID", "wire from SPEC.md" and
+// "decodes as the spec says", and its oracle side was the SPEC_SIDE constant.
+// A gitignore harness has none of those words and its oracle is git.
+// ---------------------------------------------------------------------------
+
+/** What the two axes of a pairwise grid are called, and what a unit is. */
+export interface GridVocabulary {
+  rowRole: string; // "encoder"
+  colRole: string; // "decoder"
+  axisLabel: string; // "enc\\dec" — the corner cell
+  unit: string; // "cases"
+  agreeLegend: string; // "all cases agree"
+}
+
+export const TOON_GRID_VOCAB: GridVocabulary = {
+  rowRole: "encoder",
+  colRole: "decoder",
+  axisLabel: "enc\\dec",
+  unit: "cases",
+  agreeLegend: "all cases agree",
+};
+
+/** What the privileged side of a one-sided grid is called and where it came from. */
+export interface OracleVocabulary {
+  oracleName: string; // the synthetic row name: "spec", or "git" for 4.1
+  title: string; // "SPEC GRID"
+  axisLabel: string; // "case\\dec"
+  unit: string; // "spec case(s)"
+  sourceNote: string; // "wire from SPEC.md — no encoder in the loop"
+  agreeLegend: string; // "decodes as the spec says"
+  disagreeLegend: string; // "disagrees with the spec"
+  emptyNote: string; // "(no spec cases)"
+}
+
+export const TOON_ORACLE_VOCAB: OracleVocabulary = {
+  oracleName: SPEC_SIDE,
+  title: "SPEC GRID",
+  axisLabel: "case\\dec",
+  unit: "spec case(s)",
+  sourceNote: "wire from SPEC.md \u2014 no encoder in the loop",
+  agreeLegend: "decodes as the spec says",
+  disagreeLegend: "disagrees with the spec",
+  emptyNote: "(no spec cases)",
+};
+
 export interface GridCell {
   from: string; // encoder
   to: string; // decoder
@@ -144,7 +199,9 @@ export function buildSpecGrid(
   records: DivergenceRecord[],
   decoderNames: string[],
   specCaseKeys: string[],
+  vocab: OracleVocabulary = TOON_ORACLE_VOCAB,
 ): SpecGridReport {
+  const oracle = vocab.oracleName;
   const known = new Set(decoderNames);
   const caseIdx = new Map(specCaseKeys.map((k, i) => [k, i]));
 
@@ -158,9 +215,9 @@ export function buildSpecGrid(
   for (const r of records) {
     // A record reaching this lane with a real adapter as `from` would mean a
     // pairwise result was routed into the one-sided view, silently halving it.
-    if (r.from !== SPEC_SIDE) {
+    if (r.from !== oracle) {
       throw new Error(
-        `spec grid: divergence names encoder "${r.from}" but the spec lane admits only "${SPEC_SIDE}" — harness bug`,
+        `spec grid: divergence names "${r.from}" but the one-sided lane admits only the oracle "${oracle}" — harness bug`,
       );
     }
     if (!known.has(r.to)) {
@@ -197,8 +254,8 @@ function renderOneGrid(
   adapters: string[],
   cellText: (from: string, to: string) => string,
   indent: string,
+  label: string,
 ): string[] {
-  const label = "enc\\dec";
   const labelW = Math.max(label.length, ...adapters.map((a) => a.length));
   const colW = adapters.map((to) =>
     Math.max(to.length, ...adapters.map((from) => cellText(from, to).length)),
@@ -218,10 +275,13 @@ function renderOneGrid(
 }
 
 /** CLI rendering — aggregate grid always; per-case grids only when divergent. */
-export function renderGridReport(report: GridReport): string[] {
+export function renderGridReport(
+  report: GridReport,
+  vocab: GridVocabulary = TOON_GRID_VOCAB,
+): string[] {
   const lines: string[] = [];
   lines.push(
-    `GRID (encoder row \u2192 decoder col): divergent cases per pair, of ${report.caseCount}`,
+    `GRID (${vocab.rowRole} row \u2192 ${vocab.colRole} col): divergent ${vocab.unit} per pair, of ${report.caseCount}`,
   );
   const byPair = new Map(report.cells.flat().map((c) => [`${c.from}\u0000${c.to}`, c]));
   lines.push(
@@ -232,9 +292,10 @@ export function renderGridReport(report: GridReport): string[] {
         return n === 0 ? MARK_CHAR.agree : String(n);
       },
       "  ",
+      vocab.axisLabel,
     ),
   );
-  lines.push(`  ${MARK_CHAR.agree} = all cases agree`);
+  lines.push(`  ${MARK_CHAR.agree} = ${vocab.agreeLegend}`);
   if (report.caseGrids.length) {
     lines.push("");
     lines.push(
@@ -242,24 +303,29 @@ export function renderGridReport(report: GridReport): string[] {
     );
     for (const g of report.caseGrids) {
       lines.push(`  ${g.file}`);
-      lines.push(...renderOneGrid(report.adapters, (from, to) => MARK_CHAR[g.marks[from][to]], "    "));
+      lines.push(
+        ...renderOneGrid(report.adapters, (from, to) => MARK_CHAR[g.marks[from][to]], "    ", vocab.axisLabel),
+      );
     }
   }
   return lines;
 }
 
 /** CLI rendering for the spec lane — rows are cases, cols are decoders. */
-export function renderSpecGridReport(report: SpecGridReport): string[] {
+export function renderSpecGridReport(
+  report: SpecGridReport,
+  vocab: OracleVocabulary = TOON_ORACLE_VOCAB,
+): string[] {
   const lines: string[] = [];
   lines.push(
-    `SPEC GRID (case row \u2192 decoder col): ${report.caseKeys.length} spec case(s), ` +
-      `${report.specChecks} check(s), wire from SPEC.md \u2014 no encoder in the loop`,
+    `${vocab.title} (case row \u2192 col): ${report.caseKeys.length} ${vocab.unit}, ` +
+      `${report.specChecks} check(s), ${vocab.sourceNote}`,
   );
   if (report.caseKeys.length === 0) {
-    lines.push("  (no spec cases)");
+    lines.push(`  ${vocab.emptyNote}`);
     return lines;
   }
-  const label = "case\\dec";
+  const label = vocab.axisLabel;
   const labelW = Math.max(label.length, ...report.caseKeys.map((k) => k.length));
   const colW = report.decoders.map((d) => d.length);
   lines.push(
@@ -275,8 +341,8 @@ export function renderSpecGridReport(report: SpecGridReport): string[] {
     );
   }
   lines.push(
-    `  ${MARK_CHAR.agree} = decodes as the spec says   ` +
-      `${MARK_CHAR["value-mismatch"]} = disagrees with the spec   ${MARK_CHAR.error} = error`,
+    `  ${MARK_CHAR.agree} = ${vocab.agreeLegend}   ` +
+      `${MARK_CHAR["value-mismatch"]} = ${vocab.disagreeLegend}   ${MARK_CHAR.error} = error`,
   );
   return lines;
 }

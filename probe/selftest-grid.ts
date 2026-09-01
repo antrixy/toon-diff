@@ -21,7 +21,10 @@
  */
 
 import { loadCorpus } from "./corpus.ts";
-import { buildGrid, renderGridReport, buildSpecGrid, renderSpecGridReport } from "./grid.ts";
+import {
+  buildGrid, renderGridReport, buildSpecGrid, renderSpecGridReport,
+  type GridVocabulary, type OracleVocabulary,
+} from "./grid.ts";
 import type { DivergenceRecord } from "./explain.ts";
 
 let pass = 0;
@@ -94,6 +97,17 @@ ok("013 marks 5 divergent pairs", ADAPTERS.flatMap((f) => ADAPTERS.map((t) => g0
 ok("013 python->python agrees (the real asymmetry)", g013["python"]["python"], "agree");
 
 console.log("Part 3: harness-bug tripwires");
+{
+  // M15: the ENCODER side of the unknown-adapter guard. Only the decoder side
+  // was exercised, so `from` could have been dropped on the floor entirely —
+  // which would silently discard whole rows of a report rather than failing.
+  let threwFrom = "";
+  try {
+    buildGrid([{ file: K002, from: "go", to: "ts", expected: "", actual: "" }], ADAPTERS, caseKeys);
+  } catch (e) { threwFrom = (e as Error).message; }
+  ok("unknown ENCODER throws", threwFrom.includes("unknown adapter"), true);
+  ok("and names the offending side", threwFrom.includes("\"go\""), true);
+}
 {
   let threw = "";
   try {
@@ -200,9 +214,109 @@ ok("spec legend explains agreement WITH THE SPEC",
 const emptySpec = renderSpecGridReport(buildSpecGrid([], ADAPTERS, []));
 ok("an empty spec bucket still renders", emptySpec.some((l) => l.includes("(no spec cases)")), true);
 
+console.log("Part 6: a NON-TOON configuration (4.5b generalization, v0.4)");
+// THE WHOLE POINT OF THIS PART. The renderers now take vocabulary and an oracle
+// name instead of hardwiring TOON's words, and a parameter that is accepted and
+// then ignored is indistinguishable from no parameter at all -- the M19 shape,
+// on a third file. So the generalization is exercised against a configuration
+// that shares NOTHING with TOON: four implementations instead of three, and a
+// privileged oracle called "git" rather than "spec".
+//
+// The shape is backlog.md §4.1's: gitignore, where `git check-ignore -v` is the
+// reference and the other three implementations are judged against it. That is
+// why decisions.md ruled 4.5b must cover the one-sided geometry -- it is not a
+// toon-diff peculiarity, it is what you get whenever an oracle is privileged.
+// This is a SHAPE test, not a claim about gitignore behaviour: the marks below
+// are invented, and nothing here asserts anything about any implementation.
+const GIT_IMPLS = ["git", "ignore-rs", "node-ignore", "pathspec"];
+const GIT_VOCAB: GridVocabulary = {
+  rowRole: "reference",
+  colRole: "implementation",
+  axisLabel: "ref\\impl",
+  unit: "patterns",
+  agreeLegend: "all patterns agree",
+};
+const GIT_ORACLE: OracleVocabulary = {
+  oracleName: "git",
+  title: "ORACLE GRID",
+  axisLabel: "pattern\\impl",
+  unit: "pattern(s)",
+  sourceNote: "judged against git check-ignore -v",
+  agreeLegend: "matches git",
+  disagreeLegend: "differs from git",
+  emptyNote: "(no patterns)",
+};
+
+// -- 4-wide pairwise, proving buildGrid is not bound to three --
+const P1 = "patterns/001-negation.txt";
+const P2 = "patterns/002-trailing-slash.txt";
+const wide = buildGrid(
+  [
+    { file: P1, from: "ignore-rs", to: "pathspec", expected: "", actual: "" },
+    { file: P2, from: "node-ignore", to: "git", expected: "", actual: "", error: "parse" },
+  ],
+  GIT_IMPLS,
+  [P1, P2],
+);
+ok("4 implementations give a 4x4 grid", wide.cells.length, 4);
+ok("every row is 4 wide", wide.cells.every((r) => r.length === 4), true);
+// 2 x 4 x 4 = 32. The arithmetic is a tripwire at any N, not just 3.
+ok("pair-checks scale as cases x N x N", wide.pairChecks, 32);
+ok("the fourth implementation is addressable", wide.cells[0][3].to, "pathspec");
+
+const wideLines = renderGridReport(wide, GIT_VOCAB);
+ok("the row role reaches the header", wideLines[0].includes("reference row"), true);
+ok("the col role reaches the header", wideLines[0].includes("implementation col"), true);
+ok("the unit reaches the header", wideLines[0].includes("divergent patterns"), true);
+ok("the axis label reaches the corner cell", wideLines[1].includes("ref\\impl"), true);
+ok("the agree legend is the caller's", wideLines.some((l) => l.includes("all patterns agree")), true);
+// NO TOON WORD MAY SURVIVE INTO A NON-TOON REPORT. This is the check that would
+// have caught a renderer still concatenating its own vocabulary.
+ok("no TOON vocabulary leaks into the 4-wide report",
+  wideLines.some((l) => /encoder|decoder|enc\\dec|cases agree/.test(l)), false);
+
+// -- one-sided with a DIFFERENT oracle name --
+const oracleGrid = buildSpecGrid(
+  [{ file: P1, from: "git", to: "node-ignore", expected: "", actual: "" }],
+  ["ignore-rs", "node-ignore", "pathspec"],
+  [P1, P2],
+  GIT_ORACLE,
+);
+ok("the oracle lane accepts an oracle named git", oracleGrid.totalDivergences, 1);
+ok("and marks the disagreeing implementation", oracleGrid.marks[P1]["node-ignore"], "value-mismatch");
+ok("while the others still agree", oracleGrid.marks[P1]["pathspec"], "agree");
+ok("one-sided checks are cases x implementations", oracleGrid.specChecks, 6);
+{
+  // The guard must reject the OLD oracle name once a new one is configured,
+  // or it is still comparing against the module constant.
+  let threw = "";
+  try {
+    buildSpecGrid([{ file: P1, from: "spec", to: "pathspec", expected: "", actual: "" }],
+      ["pathspec"], [P1], GIT_ORACLE);
+  } catch (e) { threw = (e as Error).message; }
+  ok("a record from \"spec\" is refused when the oracle is git", threw.includes("admits only the oracle \"git\""), true);
+}
+const oracleLines = renderSpecGridReport(oracleGrid, GIT_ORACLE);
+ok("the oracle title is the caller's", oracleLines[0].startsWith("ORACLE GRID"), true);
+ok("the source note is the caller's", oracleLines[0].includes("git check-ignore -v"), true);
+ok("the oracle legends are the caller's",
+  oracleLines.some((l) => l.includes("matches git") && l.includes("differs from git")), true);
+// M9: the corner cell of the one-sided grid. The pairwise axis label was
+// checked and this one was not, so it could still say "case\\dec".
+ok("the one-sided axis label is the caller's", oracleLines[1].includes("pattern\\impl"), true);
+ok("no TOON vocabulary leaks into the oracle report",
+  oracleLines.some((l) => /SPEC\.md|spec case|decodes as the spec|no encoder in the loop/.test(l)), false);
+const emptyOracle = renderSpecGridReport(buildSpecGrid([], ["pathspec"], [], GIT_ORACLE), GIT_ORACLE);
+ok("even the empty note is the caller's", emptyOracle.some((l) => l.includes("(no patterns)")), true);
+
+// And the TOON defaults still apply when no vocabulary is passed — the
+// generalization must not have quietly changed the live report.
+ok("default vocabulary is still TOON's", renderGridReport(grid)[0].includes("encoder row"), true);
+ok("default oracle vocabulary is still TOON's", renderSpecGridReport(sg)[0].startsWith("SPEC GRID"), true);
+
 console.log();
 if (fail === 0) {
-  console.log(`GRID REPORT PROVEN: ${pass} checks pass. The real 7 divergences render as the 013 TS-asymmetry plus the 002 decoder column, with error-vs-mismatch marks and harness-bug tripwires intact; the spec lane renders one-sided at N checks and refuses a pairwise record.`);
+  console.log(`GRID REPORT PROVEN: ${pass} checks pass. The real 7 divergences render as the 013 TS-asymmetry plus the 002 decoder column, with error-vs-mismatch marks and harness-bug tripwires intact; the spec lane renders one-sided at N checks and refuses a pairwise record, and a 4-wide non-TOON configuration with a git oracle renders with none of TOON's vocabulary.`);
 } else {
   console.log(`GRID REPORT FAILED: ${fail} of ${pass + fail} checks failed.`);
   process.exit(1);
