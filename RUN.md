@@ -9,7 +9,7 @@ From the project root (the folder this file is in):
 2) Make sure the project is ESM:
      npm pkg set type=module
 3) Prove the PURE SUITE (no external deps — no impls, no venv, no network).
-   Sixteen files, 828 checks. Run all of them; the counts are promotion
+   Sixteen files, 853 checks. Run all of them; the counts are promotion
    tripwires, so a moved number is a deliberate act or a regression.
 
      node --experimental-strip-types oracle/selftest.ts                #  18
@@ -22,7 +22,7 @@ From the project root (the folder this file is in):
      node --experimental-strip-types gen/selftest-run-manifest.ts      #  90
      node --experimental-strip-types gen/selftest-finding-log.ts       #  50
      node --experimental-strip-types probe/selftest-corpus.ts          #  58
-     node --experimental-strip-types probe/selftest-grid.ts            #  59
+     node --experimental-strip-types probe/selftest-grid.ts            #  84
      node --experimental-strip-types probe/selftest-explain.ts         #  48
      node --experimental-strip-types probe/selftest-spec-run.ts        #  25
      node --experimental-strip-types probe/selftest-numeric-domain.ts  #  83
@@ -52,8 +52,8 @@ From the project root (the folder this file is in):
    pair-check arithmetic, AND the rendered header string). Add the case first and
    read what goes red; do not go looking for the counts by hand.
 
-3c) MUTATION PASSES. Eight modules carry one, and each must be re-run when its
-   module changes. All eight work on scratch copies and never touch the tree:
+3c) MUTATION PASSES. Nine modules carry one, and each must be re-run when its
+   module changes. All nine work on scratch copies and never touch the tree:
 
      python3 gen/mutate-run-manifest.py   # all 23 mutations killed
      python3 gen/mutate-finding-log.py    # all 18 mutations killed
@@ -63,6 +63,7 @@ From the project root (the folder this file is in):
      python3 gen/mutate-shrink.py         # all 21 mutations killed
      python3 probe/mutate-spec-run.py     # all 19 mutations killed
      python3 probe/mutate-numeric-domain.py # all 27 killed, 1 equivalent (M9)
+     python3 probe/mutate-grid.py         # all 24 mutations killed
 
    A NOTE ON JUDGES, from gen/mutate-emit.py. gen/selftest-emit.ts is judged by
    the ORACLE, whose equality ignores object key order and JSON whitespace -- so

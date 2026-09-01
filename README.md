@@ -111,8 +111,8 @@ per-side verdict (behind / violates-claimed / violates-current, computed from
 each implementation's own claimed spec version) — and summarized in an N×N
 grid (v0.3).
 
-Current baseline: 16 cases — 14 pairwise (126 pair-checks, 10 divergences,
-7 explained) and 2 spec (6 spec-checks). The spec cases are v0.4's independence
+Current baseline (v0.4): 16 cases — 14 pairwise (126 pair-checks, 10
+divergences, 7 explained) and 2 spec (6 spec-checks). The spec cases are v0.4's independence
 piece: hand-built TOON wire text derived from SPEC.md, checked decoder-side, so
 no encoder is anywhere in the loop and the specification itself is the oracle.
 They are counted separately because a one-sided case costs N checks, not N×N.

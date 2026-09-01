@@ -101,6 +101,36 @@ while the spec side carries no obligation, so the faithful-relay excuse that
 applies in the pairwise lane is structurally unavailable. python and rust
 remain PREDICTED, not observed — the frozen environment was not available.
 
+### 4.5b generalization — DONE 2026-08-30, IN PLACE
+
+`buildGrid` and `buildSpecGrid` no longer hardwire TOON's vocabulary. Both take
+a vocabulary parameter (roles, unit, axis label, legends), and the one-sided
+lane takes its oracle NAME rather than the `SPEC_SIDE` constant — so a harness
+whose reference is `git check-ignore -v` uses the same renderers without
+inheriting the words "encoder", "decoder" or "SPEC.md".
+
+**Generalization in place, NOT the extraction.** decisions.md (2026-08-30) ruled
+that no published interface is designed while there is exactly one consumer,
+because an interface nothing can falsify is a guess wearing a contract's
+clothes. The refactor is where the value is — it is what stops the renderer
+being written twice — and the contract waits for a second real harness.
+
+**Both geometries are covered**, the other half of that decision: the one-sided
+lane is not a toon-diff peculiarity but the shape produced whenever an oracle is
+privileged, which most of 4.5b's named consumers have.
+
+Proven by exercising a configuration sharing nothing with TOON — four
+implementations, an oracle named `git` — and asserting that NO TOON word reaches
+the output. A parameter accepted and then ignored is indistinguishable from no
+parameter, the failure mode this session hit twice elsewhere.
+`probe/mutate-grid.py` (24 mutations) covers every one; its first run found two
+holes, both real.
+
+**4.5a is deferred** until a clause-numbered spec is actually the target, and not
+before the registry granularity question is settled — extracting a registry
+whose schema is already documented as inadequate would freeze a design intended
+for revision.
+
 ## Later — conditional on actual use, not built on spec
 
 Pull these forward only when someone using the tool asks for them. Building them
